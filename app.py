@@ -1,1261 +1,831 @@
-"""
-DMaut - AI-Enabled Marketing Automation and Campaign Optimization
-
-    python create_admin.py       (once, to create an admin account)
-    streamlit run app.py
-
-Optional: run two separate "sites" from the same code, one per role:
-    DMAUT_MODE=user  streamlit run app.py --server.port 8501   (customers' site)
-    DMAUT_MODE=admin streamlit run app.py --server.port 8502   (admin console)
-"""
-import html
-import os
-import re
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import pandas as pd
-import streamlit as st
-from dotenv import load_dotenv
+import core_engine as engine
 
-import analysis
-import db
-import ingest
+# -----------------------------------------------------------------------------
+# App Configuration & Custom Theme
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="DMaut • AI Marketing Automation",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-load_dotenv()
-
-MODE = os.environ.get("DMAUT_MODE", "").strip().lower()
-if MODE not in ("admin", "user"):
-    MODE = ""
-
-st.set_page_config(page_title="DMaut Admin" if MODE == "admin" else "DMaut", page_icon=None, layout="wide")
-
-THEME_TOML = """[theme]
-base = "light"
-primaryColor = "#1f3864"
-backgroundColor = "#f5f7fa"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#1b2433"
-font = "sans serif"
-
-[server]
-maxUploadSize = 5
-
-[browser]
-gatherUsageStats = false
-"""
-
-
-def ensure_theme_config():
-    if os.environ.get("DMAUT_SKIP_THEME_CHECK") or st.get_option("theme.base") == "light":
-        return
-    config_file = Path.cwd() / ".streamlit" / "config.toml"
-    if config_file.exists():
-        st.warning('Your .streamlit/config.toml should contain  base = "light"  under [theme] for DMaut to look right.')
-        return
-    config_file.parent.mkdir(exist_ok=True)
-    config_file.write_text(THEME_TOML, encoding="utf-8")
-    st.warning(
-        "First-run setup finished: DMaut saved its theme settings. "
-        "Please stop the app (press Ctrl+C in the terminal) and run `streamlit run app.py` once more."
-    )
-    st.stop()
-
-
-ensure_theme_config()
-
-# ----------------------------------------------------------------------
-# Styling
-# ----------------------------------------------------------------------
-NAVY = "#1f3864"
-ACCENT = "#2f6db5"
-ORANGE = "#e8491d"
-ORANGE_STRONG = "#d53d1f"
-BG = "#f5f7fa"
-SURFACE = "#ffffff"
-BORDER = "#dfe4ec"
-TEXT = "#1b2433"
-MUTED = "#5b6779"
-SUCCESS = "#1f7a4d"
-WARNING = "#b26a00"
-DANGER = "#b3261e"
-BADGE_COLORS = [NAVY, SUCCESS, ACCENT, "#6b7ea8", "#6c8cb7", SUCCESS]
-MPL_PALETTE = [NAVY, ACCENT, SUCCESS, "#6d7ea8", "#8ca4c7", "#2b4f77"]
-
-CSS = """
+# Custom High-End Styling
+st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@600&display=swap');
-:root {
-  --bg:#f5f7fa;
-  --panel:#ffffff;
-  --card:#ffffff;
-  --ink:#1b2433;
-  --muted:#5b6779;
-  --line:#dfe4ec;
-  --navy:#1f3864;
-  --navy-dark:#162a4a;
-  --accent:#2f6db5;
-  --orange:#e8491d;
-  --orange-strong:#d53d1f;
-  --success:#1f7a4d;
-  --warning:#b26a00;
-  --danger:#b3261e;
-  --shadow:0 1px 2px rgba(16,24,40,.06);
-}
-html, body, [class*="css"] { font-family:'Inter','Segoe UI',Arial,sans-serif; font-size:15px; line-height:1.5; color:var(--ink); }
-h1, h2, h3, h4, .dmaut-brand-title { font-family:'Source Serif 4',Georgia,serif; color:var(--ink); margin:0 0 0.35rem 0; }
-.stApp { background: var(--bg); }
-section[data-testid="stSidebar"] {
-  background: var(--navy);
-  border-right: 1px solid rgba(255,255,255,0.1);
-  box-shadow: none;
-  min-width: 295px !important;
-  width: 300px !important;
-  color: #fff !important;
-}
-section[data-testid="stSidebar"] > div {
-  background: transparent;
-  color: #f5f0ea;
-}
-section[data-testid="stMain"] > div { background:var(--bg); }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] h4,
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] div,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] label {
-  color: #f5f0ea !important;
-}
-[data-testid="stVerticalBlockBorderWrapper"] { background:transparent; border:none; box-shadow:none; padding:0; }
-.main .block-container { padding-top:0; max-width: 100%; }
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');
 
-.sidebar-shell {
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-  padding: 14px 12px;
-  margin: 8px 0 18px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 24px rgba(13,17,26,0.18);
-}
-.sidebar-head {
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  padding: 4px 4px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  margin-bottom: 12px;
-}
-.sidebar-brand-icon {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f3a14c, #ea5b3a);
-  color: #fff;
-  font-weight: 800;
-  box-shadow: 0 12px 20px rgba(234,91,58,0.28);
-}
-.sidebar-brand-name {
-  font-size: 0.84rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #f5f0ea;
-}
-.sidebar-brand-meta {
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(246,240,233,0.72);
+html, body, [class*="css"] {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
 }
 
-[data-testid="stSidebar"] .stRadio > div {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
-}
-[data-testid="stSidebar"] .stRadio > div > label {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 0.78rem 0.82rem;
-  margin: 0;
-  color: rgba(255,255,255,0.9);
-  font-weight: 600;
-  transition: all 0.2s ease;
-  opacity: 1;
-  visibility: visible;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
-}
-[data-testid="stSidebar"] .stRadio > div > label:hover {
-  border-color: rgba(250,170,90,0.52);
-  background: rgba(255,255,255,0.07);
-  transform: translateY(-1px);
-}
-[data-testid="stSidebar"] .stRadio > div > label:has(input:checked) {
-  background: linear-gradient(135deg, rgba(234,91,58,0.18), rgba(255,255,255,0.04));
-  border-color: rgba(255,165,99,0.65);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 14px 18px rgba(234,91,58,0.12);
-}
-[data-testid="stSidebar"] .stRadio > div > label > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-[data-testid="stSidebar"] .stRadio input[type="radio"] {
-  accent-color: #f4b464;
-  opacity: 1;
-}
-[data-testid="stSidebar"] .stRadio input[type="radio"]:checked + div {
-  color: #f5f0ea;
-}
-[data-testid="stSidebar"] .stMarkdownContainer p,
-[data-testid="stSidebar"] .stMarkdownContainer strong,
-[data-testid="stSidebar"] .stMarkdownContainer span,
-[data-testid="stSidebar"] .stMarkdownContainer div {
-  color: rgba(255,255,255,0.92);
-}
-[data-testid="stSidebar"] .stMarkdownContainer {
-  padding-left: 0.15rem;
-}
-[data-testid="stSidebar"] .stButton > button {
-  width: 100%;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #ea5b3a, #d94a2a);
-  color: white;
-  border: none;
-  font-weight: 700;
-  box-shadow: 0 10px 18px rgba(234,91,58,0.18);
-}
-[data-testid="stSidebar"] .stSidebarNav {
-  background: transparent;
+h1, h2, h3, h4, .headline {
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 700;
 }
 
-.dmaut-topbar {
-  height: 44px;
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  padding: 0 16px;
-  background: var(--dark);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.8);
+/* Top bar and header cleanup */
+header[data-testid="stHeader"] {
+    background: transparent !important;
 }
-.dmaut-topbar-spacer { flex:1; }
-.dmaut-deploy { color: rgba(255,255,255,0.82); font-size:0.76rem; font-weight:600; }
-
-.dmaut-login-shell {
-  width: min(520px, calc(100% - 32px));
-  margin: 26px auto 0;
-}
-.dmaut-brand-card {
-  text-align:center;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(61,52,45,0.12);
-  border-radius: 10px;
-  padding: 20px 18px 18px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.30);
-}
-.dmaut-brand-icon { font-size:2.05rem; margin-bottom:10px; }
-.dmaut-brand-title {
-  font-size:0.92rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-weight: 800;
-  color:var(--ink);
-}
-.dmaut-brand-subtitle {
-  margin:10px 0 0;
-  color:var(--muted);
-  font-size:0.8rem;
-  font-weight:500;
+.stDeployButton, [data-testid="manage-app-button"] {
+    display: none !important;
 }
 
-.dmaut-auth-wrap {
-  position: relative;
-  margin-top: 14px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(61,52,45,0.12);
-  border-radius: 10px;
-  padding: 12px 14px 14px;
-  box-shadow: none;
+/* Base App Layout */
+.stApp {
+    background-color: #090d16;
+    background-image: 
+        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.06) 0px, transparent 50%);
+    color: #f1f5f9;
 }
 
-.stTabs [data-baseweb="tab-list"] {
-  gap: 8px;
-  background: transparent;
-  border: none;
-  padding: 0;
-  margin: 0 0 6px;
-}
-.stTabs [data-baseweb="tab"] {
-  height: 32px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  padding: 0 12px;
-}
-.stTabs [aria-selected="true"] {
-  background: var(--orange) !important;
-  color: #fff !important;
-  border-color: var(--orange) !important;
-  box-shadow: none !important;
-}
-
-.stTextInput > div > div > input,
-.stTextInput > div > div > div > input,
-.stPasswordInput > div > div > input,
-.stPasswordInput > div > div > div > input {
-  border: 1px solid rgba(61,52,45,0.14) !important;
-  background: rgba(255,255,255,0.18) !important;
-  border-radius: 8px !important;
-  min-height: 42px !important;
-  padding: 8px 10px !important;
-  color: var(--ink) !important;
-  box-shadow:none !important;
-}
-.stTextInput label, .stPasswordInput label {
-  color: rgba(29, 36, 47, 0.9) !important;
-  font-size: 0.76rem !important;
-  font-weight: 600 !important;
-  margin-bottom: 6px !important;
-}
-
-[data-testid="stFormSubmitButton"] > button {
-  width: fit-content;
-  min-width: 110px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: linear-gradient(180deg, var(--orange) 0%, var(--orange-strong) 100%);
-  color: #fff;
-  font-weight: 700;
-  box-shadow: none;
-}
-[data-testid="stFormSubmitButton"] > button:hover {
-  background: linear-gradient(180deg, #f58c68 0%, var(--orange) 100%);
-}
-
-.login-error {
-  margin-top: 10px;
-  padding:8px 10px;
-  border-radius:8px;
-  background: rgba(217,83,83,0.08);
-  border: 1px solid rgba(217,83,83,0.16);
-  color:#af3d38;
-  font-size:0.8rem;
-  font-weight:600;
-}
-
-.dmaut-demo { margin-top:8px; padding:10px 12px; border-radius:10px; background:rgba(29,44,58,0.04); border:1px solid rgba(29,44,58,0.08); color:#1d2c3a; font-size:0.78rem; }
-.dmaut-demo strong { display:block; font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px; }
-.dmaut-demo span { display:block; line-height:1.6; }
-
-.divider-soft {
-  border-top: 1px solid rgba(29,36,47,0.12);
-}
-
-/* Product dashboard polish */
 .main .block-container {
-  padding-top: 1.2rem;
-  padding-left: 2rem !important;
-  padding-right: 2rem !important;
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 1400px !important;
 }
 
-div[data-testid="stVerticalBlock"] > div:has(> .rit-header),
-div[data-testid="stVerticalBlock"] > div:has(> .rit-ticker),
-div[data-testid="stVerticalBlock"] > div:has(> .rit-hero),
-div[data-testid="stVerticalBlock"] > div:has(> .action-strip) {
-  margin-bottom: 0;
+/* Glassmorphism Metric Cards */
+.metric-card {
+    background: linear-gradient(135deg, rgba(26, 34, 52, 0.6) 0%, rgba(15, 23, 42, 0.6) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 22px 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(14px);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.metric-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 16px 40px rgba(99, 102, 241, 0.15);
+}
+.metric-title {
+    color: #94a3b8;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+}
+.metric-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 2.1rem;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1;
+    letter-spacing: -0.03em;
+}
+.metric-sub {
+    font-size: 0.78rem;
+    margin-top: 8px;
+    color: #38bdf8;
+    font-weight: 600;
 }
 
-.rit-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 22px 16px;
-  margin-top: 4px;
-  background: linear-gradient(135deg, rgba(17,24,33,0.98), rgba(22,28,38,0.98));
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 22px 22px 0 0;
-  box-shadow: 0 18px 32px rgba(17, 24, 33, 0.16);
+/* Section Header Styling */
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.rit-header .title {
-  font-size: 1.12rem;
-  font-weight: 800;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #f9f5f1;
+.section-title {
+    font-size: 1.45rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    margin: 0;
 }
-.rit-header .subtitle {
-  font-size: 0.76rem;
-  color: rgba(249,245,241,0.72);
-  margin-top: 3px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.rit-header .role-badge {
-  margin-left: auto;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #f9f5f1;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.section-caption {
+    color: #94a3b8;
+    font-size: 0.88rem;
+    margin: 0;
 }
 
-.rit-kpi-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 18px;
-  padding: 0 6px;
+/* Top Website Navbar & Hero Header */
+.top-navbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
-.rit-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(17,24,33,0.08);
-  background: rgba(255,255,255,0.26);
-  color: var(--ink);
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 800;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
+.brand-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
-.rit-pill.success {
-  background: rgba(31,122,77,0.08);
-  border-color: rgba(31,122,77,0.14);
-  color: #195f41;
+.brand-badge {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
 }
-.rit-pill.accent {
-  background: rgba(232,73,29,0.08);
-  border-color: rgba(232,73,29,0.14);
-  color: var(--orange-strong);
+.brand-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    line-height: 1;
 }
-.rit-pill.muted {
-  background: rgba(17,24,33,0.03);
-  border-color: rgba(17,24,33,0.08);
-  color: var(--ink);
-}
-
-.rit-ticker {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: linear-gradient(135deg, rgba(217, 166, 46, 0.18), rgba(232, 73, 29, 0.1));
-  border: 1px solid rgba(41, 31, 17, 0.08);
-  border-radius: 14px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
-  font-size: 0.82rem;
-  color: #3b2f2d;
-  box-shadow: 0 8px 16px rgba(41, 31, 17, 0.03);
-}
-.rit-ticker .badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #2f1d15;
-  color: #f8f5ef;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.brand-sub {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 3px;
+    font-weight: 500;
 }
 
-.rit-hero {
-  padding: 18px 8px 20px;
-  margin-bottom: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02));
-  border-radius: 22px;
-  border: 1px solid rgba(29,36,47,0.06);
-}
-.rit-hero .pill {
-  display: inline-block;
-  margin-bottom: 12px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(232, 73, 29, 0.08);
-  border: 1px solid rgba(232, 73, 29, 0.14);
-  color: var(--orange-strong);
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-.rit-hero h1 {
-  font-size: clamp(2.4rem, 3vw, 4.1rem);
-  line-height: 0.98;
-  letter-spacing: -0.07em;
-  margin: 0 0 12px;
-  font-weight: 900;
-  color: var(--ink);
-}
-.rit-hero h1 .accent {
-  color: var(--orange-strong);
-}
-.rit-hero p {
-  max-width: 980px;
-  color: var(--muted);
-  font-size: 1.04rem;
-  line-height: 1.7;
-  margin: 0;
+/* Horizontal Nav Tabs at Top */
+div[data-testid="stHorizontalBlock"]:has(.nav-tab-btn) {
+    background: rgba(15, 23, 42, 0.6);
+    padding: 6px 8px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 24px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(12px);
 }
 
-.action-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 18px 0 22px;
+/* Top Hero Banner */
+.hero-box {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.16) 0%, rgba(14, 165, 233, 0.08) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 24px;
+    padding: 34px 38px;
+    margin-bottom: 28px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
 }
-.action-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.28);
-  border: 1px solid rgba(29,36,47,0.08);
-  color: var(--ink);
-  font-size: 0.78rem;
-  font-weight: 700;
-  box-shadow: 0 8px 18px rgba(41,31,17,0.03);
+.hero-box::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%);
+    pointer-events: none;
 }
-
-div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-  gap: 10px;
-  background: transparent;
-  border-bottom: 1px solid rgba(29,36,47,0.12);
-  padding-bottom: 2px;
-  margin-bottom: 18px;
-}
-div[data-testid="stTabs"] [data-baseweb="tab"] {
-  border: 1px solid transparent;
-  border-radius: 10px 10px 0 0;
-  border-bottom: 0;
-  padding: 10px 16px;
-  background: rgba(255,255,255,0.18);
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-div[data-testid="stTabs"] [aria-selected="true"] {
-  background: linear-gradient(180deg, rgba(232,73,29,0.98), rgba(221,89,47,0.96)) !important;
-  color: #fff !important;
-  border-color: rgba(232,73,29,0.98) !important;
-  box-shadow: 0 12px 18px rgba(232,73,29,0.15) !important;
-}
-/* Compatibility: keep the old tab structure for tests without showing it in the final UI. */
-div[data-testid="stTabs"] {
-  display: none;
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.22);
+    border: 1px solid rgba(99, 102, 241, 0.45);
+    color: #c7d2fe;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
 }
 
-div[data-testid="stMetric"] {
-  background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
-  border: 1px solid rgba(29,36,47,0.08);
-  border-radius: 16px;
-  padding: 14px 16px;
-  box-shadow: 0 10px 28px rgba(23,19,15,0.04);
-}
-div[data-testid="stMetric"] > div {
-  padding: 2px 0;
-}
-div[data-testid="stMetric"] label {
-  font-size: 0.72rem !important;
-  letter-spacing: 0.08em !important;
-  text-transform: uppercase !important;
-  color: var(--muted) !important;
-}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-  font-size: 2.05rem !important;
-  font-weight: 900 !important;
-  letter-spacing: -0.065em !important;
+/* Navigation Segmented Bar */
+.nav-pills-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.85);
+    padding: 6px 10px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 100px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.1));
-  border: 1px solid rgba(29,36,47,0.08);
-  border-radius: 18px;
-  padding: 16px 18px;
-  box-shadow: 0 12px 28px rgba(46, 31, 20, 0.05);
-  margin-bottom: 18px;
-}
-.stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.35rem;
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 18px rgba(29,36,47,0.08);
-}
-.stat-number {
-  font-size: 1.48rem;
-  font-weight: 900;
-  color: var(--ink);
-  line-height: 1.1;
-}
-.stat-label {
-  font-size: 0.7rem;
-  color: var(--muted);
-  margin-top: 2px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Sidebar Custom Styling */
+section[data-testid="stSidebar"] {
+    background-color: #0b1120 !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    min-width: 280px !important;
 }
 
-div[data-testid="stContainer"] {
-  padding: 0;
-}
-div[data-testid="stContainer"] > div {
-  border-radius: 12px;
-}
-div[data-testid="stContainerBorderWrapper"] {
-  background: linear-gradient(180deg, rgba(255,255,255,0.26), rgba(255,255,255,0.09));
-  border: 1px solid rgba(29,36,47,0.08);
-  border-radius: 18px;
-  box-shadow: 0 20px 30px rgba(19, 24, 32, 0.06), inset 0 1px 0 rgba(255,255,255,0.18);
-  backdrop-filter: blur(4px);
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {
+    color: #e2e8f0 !important;
+    font-weight: 600;
 }
 
-.stDownloadButton > button,
-.stButton > button,
-button[kind="primary"] {
-  border: none !important;
-  border-radius: 10px !important;
-  background: linear-gradient(180deg, var(--orange) 0%, var(--orange-strong) 100%) !important;
-  color: #fff !important;
-  font-weight: 700 !important;
-  box-shadow: none !important;
+/* Enterprise Container & Card Styling */
+.card-container {
+    background: rgba(26, 34, 52, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    margin-bottom: 20px;
 }
 
-.stDownloadButton > button:hover,
-.stButton > button:hover,
-button[kind="primary"]:hover {
-  filter: brightness(0.98);
+/* Button Styling */
+.stButton > button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    border: none !important;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3) !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 22px rgba(99, 102, 241, 0.45) !important;
 }
 
-div[data-testid="stFileUploader"] {
-  background: rgba(255,255,255,0.16);
-  border: 1px solid rgba(29,36,47,0.1);
-  border-radius: 12px;
-  padding: 4px;
+.stDownloadButton > button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    border: none !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3) !important;
 }
-
-.stAlert, .stInfo, .stSuccess, .stWarning, .stError {
-  border-radius: 12px !important;
-  border: 1px solid rgba(29,36,47,0.08) !important;
-}
-
-textarea, input, select {
-  border-radius: 10px !important;
-}
-
-div[role="radiogroup"] {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  margin-top: 10px;
-}
-div[role="radiogroup"] label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink);
-  font-weight: 500;
-}
-div[role="radiogroup"] input[type="radio"] {
-  accent-color: var(--orange);
-  width: 14px;
-  height: 14px;
-}
-
-@media (max-width:700px) {
-  .dmaut-login-shell { margin-top: 20px; }
-  .dmaut-auth-wrap { padding: 10px 12px 12px; }
-  .main .block-container {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-  .rit-header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .rit-header .role-badge {
-    margin-left: 0;
-  }
+.stDownloadButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 22px rgba(16, 185, 129, 0.45) !important;
 }
 </style>
-"""
-st.markdown(CSS, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# Initialize Session State
+# -----------------------------------------------------------------------------
+if "df" not in st.session_state:
+    sample_csv = Path(__file__).resolve().parent / "sample_business_data.csv"
+    if sample_csv.exists():
+        st.session_state["df"] = pd.read_csv(sample_csv)
+    else:
+        st.session_state["df"] = engine.generate_marketing_data(600)
 
-# ----------------------------------------------------------------------
-# Small UI helpers
-# ----------------------------------------------------------------------
-def stat_card(icon, number, label, color):
-    return (
-        f'<div class="stat-card"><div class="stat-icon" style="background:{color};">{icon}</div>'
-        f'<div class="stat-number">{html.escape(str(number))}</div><div class="stat-label">{html.escape(label)}</div></div>'
-    )
+if "model_type" not in st.session_state:
+    st.session_state["model_type"] = "Logistic Regression"
 
+if "current_page" not in st.session_state:
+    st.session_state["current_page"] = "📊 Overview"
 
-def render_table(frame, index=True):
-    """HTML table (cell contents are escaped by pandas, so uploaded text can't inject markup)."""
-    st.markdown(frame.to_html(classes="dmaut-table", border=0, index=index), unsafe_allow_html=True)
-
-
-def show_fig(fig):
-    st.pyplot(fig)
-    plt.close(fig)
-
-
-def empty_state(message):
-    with st.container(border=True):
-        st.markdown("#### Nothing to show yet")
-        st.info(message)
-
-
-def style_axes(ax):
-    ax.spines[["top", "right"]].set_visible(False)
-
-
-# ----------------------------------------------------------------------
-# Login / sign-up
-# ----------------------------------------------------------------------
-def login_screen():
-    allowed = ["admin"] if MODE == "admin" else ["user"] if MODE == "user" else ["user", "admin"]
-    _, middle, _ = st.columns([1, 1.25, 1])
-    with middle:
-        st.markdown(
-            '<div class="dmaut-login-shell"><div class="dmaut-brand-card"><div class="dmaut-brand-title">DMaut</div><p class="dmaut-brand-subtitle">Customer segmentation and campaign targeting for your business</p></div></div>',
-            unsafe_allow_html=True,
-        )
-
-        if len(allowed) == 2:
-            role_choice = st.radio("Role", ["👤 User", "🔑 Admin"], key="role_choice", horizontal=True)
-            role = "user" if role_choice == "👤 User" else "admin"
-        else:
-            role = allowed[0]
-
-        if role == "user":
-            login_tab, signup_tab = st.tabs(["Log in", "Create account"])
-        else:
-            login_tab, signup_tab = st.container(), None
-            if not db.account_exists("admin"):
-                st.info("No admin account exists yet. Run `python create_admin.py` once in your terminal, then refresh this page.")
-
-        with login_tab:
-            st.markdown('<div class="dmaut-auth-wrap">', unsafe_allow_html=True)
-            st.markdown(
-                '<div class="dmaut-demo"><strong>Demo access</strong><span>Admin: dmaut_admin / Dm@ut!2026</span><span>User: dmaut_user / User@DMAUT!2026</span></div>',
-                unsafe_allow_html=True,
-            )
-            with st.form(f"login_form_{role}", clear_on_submit=False):
-                username = st.text_input("Username", key=f"login_user_{role}")
-                password = st.text_input("Password", type="password", key=f"login_pw_{role}")
-                submitted = st.form_submit_button("Log in", key=f"login_submit_{role}")
-
-            if submitted:
-                account_id, message = db.authenticate(role, username, password)
-                if account_id:
-                    st.session_state.update(
-                        authenticated=True, role=role, account_id=account_id, username=username.strip()
-                    )
-                    db.log_event(username.strip(), role, "login")
-                    st.rerun()
-                db.log_event(username.strip(), role, "login_failed")
-                st.error(message)
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        if signup_tab is not None:
-            with signup_tab:
-                st.markdown('<div class="dmaut-auth-wrap">', unsafe_allow_html=True)
-                st.caption("Create a free account to upload your own customer data. Your data stays in your private space.")
-                with st.form("signup_form"):
-                    new_user = st.text_input("Choose a username", key="signup_user")
-                    new_pw = st.text_input("Choose a password (8+ characters)", type="password", key="signup_pw")
-                    new_pw2 = st.text_input("Confirm password", type="password", key="signup_pw2")
-                    created = st.form_submit_button("Create account", key="signup_submit")
-                if created:
-                    if new_pw != new_pw2:
-                        st.error("The two passwords don't match.")
-                    else:
-                        try:
-                            account_id = db.create_account("user", new_user, new_pw)
-                        except ValueError as err:
-                            st.error(str(err))
-                        else:
-                            db.log_event(new_user.strip(), "user", "signup")
-                            st.session_state.update(
-                                authenticated=True, role="user", account_id=account_id, username=new_user.strip()
-                            )
-                            st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-
-db.init_db()
-
-if not st.session_state.get("authenticated"):
-    login_screen()
-    st.stop()
-
-role = st.session_state["role"]
-is_admin = role == "admin"
-account_id = st.session_state["account_id"]
-username = st.session_state["username"]
-role_label = "Admin" if is_admin else "User"
-
-# ----------------------------------------------------------------------
-# Sidebar navigation
-# ----------------------------------------------------------------------
-st.sidebar.markdown(
-    """
-    <div class="sidebar-shell">
-      <div class="sidebar-head">
-        <div class="sidebar-brand-icon">D</div>
+# -----------------------------------------------------------------------------
+# Top Website Navbar Header
+# -----------------------------------------------------------------------------
+st.markdown("""
+<div class="top-navbar">
+    <div class="brand-logo">
+        <div class="brand-badge">⚡</div>
         <div>
-          <div class="sidebar-brand-name">DMaut</div>
+            <div class="brand-title">DMaut</div>
+            <div class="brand-sub">AI-Powered Marketing Automation & Campaign Optimizer</div>
         </div>
-      </div>
-      <div style="font-size:0.72rem; color:rgba(255,255,255,0.72); margin-bottom:8px;">Account</div>
-      <div style="font-size:0.92rem; font-weight:600; color:#f8f1ea;">{}</div>
-      <div style="margin-top:6px; font-size:0.75rem; color:rgba(255,255,255,0.72);">{}</div>
     </div>
-    """.format(username, role_label),
-    unsafe_allow_html=True,
-)
-st.sidebar.markdown("### Navigation")
-nav_pages = ["Overview", "My Data", "Segmentation", "Prediction", "Optimization"]
-if is_admin:
-    nav_pages.append("Admin")
-selected_page = st.sidebar.radio("Open page", nav_pages, index=0, key="main_navigation")
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Controls")
-if is_admin:
-    n_clusters = st.sidebar.slider(
-        "Customer segments", 2, 6, 4, help="How many groups the AI should split your customers into."
-    )
-else:
-    n_clusters = 4
-    st.sidebar.caption("Customer segments: 4 (admins can change this)")
-target_pct = st.sidebar.slider(
-    "How selective should targeting be? (%)", 10, 90, 40, step=5,
-    help="Lower = only the customers most likely to respond are contacted (a smaller, more precise campaign).",
-)
-st.sidebar.markdown("---")
-if st.sidebar.button("Log out"):
-    db.log_event(username, role, "logout")
-    st.session_state.clear()
-    st.rerun()
-
-# ----------------------------------------------------------------------
-# Datasets owned by this account
-# ----------------------------------------------------------------------
-datasets = db.list_datasets(role, account_id)
-dataset_ids = [d["id"] for d in datasets]
-dataset_names = {d["id"]: f"{d['name']}  ·  {d['n_rows']:,} customers" for d in datasets}
-
-if "_pending_active" in st.session_state:  # set by the upload code further down
-    st.session_state["active_dataset_id"] = st.session_state.pop("_pending_active")
-if dataset_ids and st.session_state.get("active_dataset_id") not in dataset_ids:
-    st.session_state["active_dataset_id"] = dataset_ids[0]
-if not dataset_ids:
-    st.session_state.pop("active_dataset_id", None)
-
-# ----------------------------------------------------------------------
-# Header, hero, guide
-# ----------------------------------------------------------------------
-hero_title = "Admin console" if MODE == "admin" else "Campaign targeting dashboard"
-header_lift = "—"
-st.markdown(
-    f"""
-<div class="rit-header">
-    <div><div class="title">DMaut</div>
-    <div class="subtitle">{username} · {role_label}</div></div>
+    <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:0.75rem; color:#10b981; font-weight:700; background:rgba(16, 185, 129, 0.15); border:1px solid rgba(16, 185, 129, 0.3); padding:4px 12px; border-radius:999px;">● Engine Online</span>
+        <span style="font-size:0.75rem; color:#a5b4fc; background:rgba(99, 102, 241, 0.15); border:1px solid rgba(99, 102, 241, 0.3); padding:4px 12px; border-radius:999px;">v2.0 Enterprise</span>
+    </div>
 </div>
-<div class="rit-kpi-strip">
-    <div class="rit-pill success">Model ready</div>
-    <div class="rit-pill muted">Audience insight ready</div>
-    <div class="rit-pill accent">Lift potential {header_lift}</div>
-</div>
-<div class="rit-hero">
-    <h1>{hero_title}</h1>
-    <p>Segment your customers, predict who is likely to respond, and see how much better a targeted campaign performs than emailing everyone.</p>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-with st.expander("New here? How DMaut works"):
-    st.markdown(
-        """
-1. My Data - download the CSV template, fill in your customers, and upload it.
-2. Segmentation and prediction - see which customer groups you have, and what makes a customer likely to buy.
-3. Optimization - see how much better a targeted campaign does than emailing everyone.
-
-Your data is stored in your own private space. Names, emails and phone numbers are never kept.
-"""
-    )
-
-active_id = None
-if dataset_ids:
-    active_id = st.selectbox(
-        "📂 Active dataset", dataset_ids, format_func=lambda i: dataset_names[i], key="active_dataset_id"
-    )
-
-# ----------------------------------------------------------------------
-# Analysis (only when a dataset is selected)
-# ----------------------------------------------------------------------
-df = seg_df = profile = model = opt = None
-if active_id is not None:
-    df = db.load_dataset(role, account_id, active_id)
-    if df is not None:
-        try:
-            seg_df, profile = analysis.segment_customers(df, n_clusters)
-            model = analysis.evaluate_model(df)
-            opt = analysis.optimize_targeting(df, model.proba, target_pct)
-        except ValueError as exc:
-            st.error(f"We couldn't analyse this dataset: {exc}")
-            seg_df = profile = model = opt = None
-
-dash = "—"
-cards = [
-    ("👥", f"{len(df):,}" if df is not None else dash, "Customers"),
-    ("📈", f"{df['converted'].mean():.0%}" if df is not None else dash, "Conversion Rate"),
-    ("🧩", str(n_clusters) if profile is not None else dash, "Segments"),
-    ("🎯", f"{model.accuracy:.0%}" if model is not None else dash, "Model Accuracy"),
-    ("🚀", f"{opt.lift:+.0%}" if opt is not None else dash, "Campaign Lift"),
-    ("🏆", f"{target_pct}%", "Top Targeted"),
+# Top Website Navigation Bar (Hero Section Style)
+nav_options = [
+    "📊 Overview",
+    "👥 Customer Personas",
+    "🧠 Conversion AI",
+    "🚀 Campaign Optimizer",
+    "🔮 Propensity Predictor",
+    "📂 Data Manager"
 ]
-for column, (icon, value, label), color in zip(st.columns(6), cards, BADGE_COLORS):
-    column.markdown(stat_card(icon, value, label, color), unsafe_allow_html=True)
-st.write("")
 
-if active_id is not None and df is not None:
-    metric_summary = [
-        ("Revenue lift", f"{opt.lift:+.0%}" if opt is not None else "—", "success"),
-        ("Qualified audience", f"{opt.n_targeted:,}" if opt is not None else "—", "muted"),
-        ("Conversion score", f"{model.accuracy:.0%}" if model is not None else "—", "accent"),
-        ("Customer pool", f"{len(df):,}", "muted"),
-    ]
-    st.markdown('<div class="rit-kpi-strip">', unsafe_allow_html=True)
-    for label, value, tone in metric_summary:
-        st.markdown(f'<div class="rit-pill {tone}">{label}: {value}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+nav_cols = st.columns(len(nav_options))
+for idx, col in enumerate(nav_cols):
+    opt = nav_options[idx]
+    is_active = (st.session_state["current_page"] == opt)
+    with col:
+        if st.button(
+            opt,
+            key=f"nav_top_{idx}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary"
+        ):
+            st.session_state["current_page"] = opt
+            st.rerun()
 
+menu = st.session_state["current_page"]
 
-# ----------------------------------------------------------------------
-# Dashboard page handlers
-# ----------------------------------------------------------------------
-def handle_upload(uploaded):
-    if uploaded.size > ingest.MAX_BYTES:
-        st.error("That file is larger than 5 MB. Please upload a smaller sample.")
-        return
-    try:
-        clean, warnings = ingest.prepare_upload(uploaded)
-    except ingest.UploadError as err:
-        for problem in err.problems:
-            st.error(problem)
-        return
-    for warning in warnings:
-        st.warning(warning)
-    st.success(f"✅ Looks good — {len(clean):,} customers are ready to save. Here's a preview:")
-    render_table(clean.drop(columns=["customer_id"]).head(5), index=False)
-
-    n = st.session_state.get("uploader_n", 0)
-    name = st.text_input("Name this dataset", value=Path(uploaded.name).stem[:60], max_chars=80, key=f"dsname_{n}_{uploaded.name}")
-    if st.button("💾 Save dataset", key="save_dataset"):
-        try:
-            new_id = db.save_dataset(role, account_id, name, clean)
-        except ValueError as err:
-            st.error(str(err))
-            return
-        db.log_event(username, role, "upload", f"{len(clean)} rows")
-        st.session_state["_pending_active"] = new_id
-        st.session_state["uploader_n"] = n + 1
-        st.rerun()
-
-
-def render_overview_page():
-    st.markdown("#### Dashboard overview")
-    st.caption("A quick snapshot of your customers and the campaign model in one place.")
-    if active_id is None or df is None:
-        sample_stats = [
-            ("Qualified audience", "82.4K", "+18.2%"),
-            ("Average response", "6.8%", "+1.4 pts"),
-            ("Campaign lift", "+23%", "vs baseline"),
-            ("Retention", "91%", "healthy"),
-        ]
-        cols = st.columns(4)
-        for col, (label, value, delta) in zip(cols, sample_stats):
-            col.metric(label, value, delta)
-
-        demo_df = pd.DataFrame(
-            {
-                "Segment": ["Prospects", "Loyalists", "Win-back", "At risk"],
-                "Conversion": [5.2, 8.9, 4.4, 2.7],
-            }
-        )
-        st.markdown("##### Sample campaign performance")
-        st.bar_chart(demo_df.set_index("Segment"), color="#e8491d")
-        st.info("Upload your CSV in the My Data section to replace this demo with your live customer analysis.")
-        return
-
-    overview_left, overview_right = st.columns([1.15, 0.85])
-    with overview_left:
-        st.markdown("##### Customer performance")
-        st.info(
-            f"You are currently reviewing **{len(df):,} customers** from **{dataset_names[active_id]}**. "
-            "The model updates when you adjust the targeting slider in the sidebar."
-        )
-        if model is not None:
-            st.metric("Model accuracy", f"{model.accuracy:.1%}")
-            st.metric("Projected target lift", f"{opt.lift:+.0%}" if opt is not None else "—")
-    with overview_right:
-        st.markdown("##### Campaign actions")
-        st.markdown(
-            "- Review your best-performing audience segments\n"
-            "- Prioritize the top responders with tighter targeting\n"
-            "- Save time by focusing only on the highest-value prospects"
-        )
-
+# -----------------------------------------------------------------------------
+# Sidebar: Parameter Controls
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("""
+    <div style="font-size:0.78rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px;">
+        ⚙️ AI Hyperparameters
+    </div>
+    """, unsafe_allow_html=True)
+    
+    model_choice = st.selectbox(
+        "Predictive Architecture",
+        ["Logistic Regression", "Random Forest"],
+        index=0 if st.session_state["model_type"] == "Logistic Regression" else 1
+    )
+    st.session_state["model_type"] = model_choice
+    
+    n_clusters = st.slider("Segmentation Personas (K)", min_value=2, max_value=6, value=4)
+    target_top_pct = st.slider("Selective Cutoff (% Top Audience)", min_value=10, max_value=90, value=35, step=5)
+    
     st.markdown("---")
-    if profile is not None and opt is not None:
-        offer_col, segment_col = st.columns(2)
-        with offer_col:
-            st.markdown("#### Recommended next step")
-            st.success(
-                f"Target the top {target_pct}% of customers for the strongest conversion lift: "
-                f"{opt.targeted_rate:.1%} conversion vs {opt.baseline_rate:.1%} for everyone."
-            )
-        with segment_col:
-            st.markdown("#### Segmentation snapshot")
-            largest_segment = profile.iloc[0].name if not profile.empty else "—"
-            st.write(f"Largest segment: **{largest_segment}**")
+    st.markdown("""
+    <div style="font-size:0.78rem; color:#94a3b8; line-height:1.6;">
+        <b>Audience Calibration:</b><br>
+        Models recompute dynamically via 5-Fold Stratified Cross Validation.
+    </div>
+    """, unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# Compute Core Engine Outputs Cached
+# -----------------------------------------------------------------------------
+df = st.session_state["df"]
 
-def render_my_data():
-    with st.container(border=True):
-        st.markdown("#### Step 1 · Get the template")
-        st.write("Your file needs one row per customer. Download the template to see the exact columns and fill it in.")
-        st.download_button("Download CSV template", ingest.template_csv(), file_name="dmaut_template.csv", mime="text/csv")
-        with st.expander("What does each column mean?"):
-            render_table(pd.DataFrame(ingest.COLUMN_GUIDE, columns=["Column", "Meaning", "Example"]), index=False)
+segmented_df, personas_summary = engine.perform_segmentation(df, n_clusters=n_clusters)
+model_results = engine.train_conversion_model(df, model_type=st.session_state["model_type"])
+campaign_results = engine.simulate_campaign(
+    segmented_df,
+    model_results["probabilities"],
+    top_pct=target_top_pct
+)
 
-    with st.container(border=True):
-        st.markdown("#### Step 2 · Upload your customer data")
-        st.caption(
-            f"CSV files only · {ingest.MIN_ROWS}–{ingest.MAX_ROWS:,} customers · up to 5 MB. "
-            "Any other columns (such as names or emails) are ignored and never stored."
+# -----------------------------------------------------------------------------
+# View: 1. Dashboard Overview
+# -----------------------------------------------------------------------------
+# View: 1. Dashboard Overview
+# -----------------------------------------------------------------------------
+if menu == "📊 Overview":
+    st.markdown(f"""
+    <div class="hero-box">
+        <span class="hero-badge">AI Marketing Intelligence</span>
+        <h1 style="margin:0 0 8px; font-size:2.4rem; color:#fff; letter-spacing:-0.03em;">Campaign Intelligence & Optimization</h1>
+        <p style="margin:0; color:#94a3b8; font-size:1.05rem; max-width:850px; line-height:1.6;">
+            Harness predictive machine learning to segment audiences, identify high-intent conversion drivers, 
+            and target qualified customers with maximum ROI.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 4 Quick Metric Cards
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Total Customer Pool</div>
+            <div class="metric-val">{len(df):,}</div>
+            <div class="metric-sub">Active Marketing Audience</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Baseline Conversion</div>
+            <div class="metric-val">{campaign_results['baseline_rate']:.1%}</div>
+            <div class="metric-sub">Un-targeted "Blast Everyone"</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Targeted Conversion</div>
+            <div class="metric-val">{campaign_results['targeted_rate']:.1%}</div>
+            <div class="metric-sub" style="color:#10b981;">{campaign_results['lift']:+.1f}% Conversion Lift</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">AI Model Accuracy</div>
+            <div class="metric-val">{model_results['accuracy']:.1%}</div>
+            <div class="metric-sub">ROC-AUC: {model_results['roc_auc']:.3f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Overview Visuals
+    col_chart1, col_chart2 = st.columns([1.2, 1])
+    with col_chart1:
+        st.markdown("### 📈 Campaign Strategy Comparison")
+        comp_df = pd.DataFrame({
+            "Strategy": ["Email Everyone (Blast)", f"AI Targeted (Top {target_top_pct}%)"],
+            "Conversion Rate (%)": [campaign_results['baseline_rate'] * 100, campaign_results['targeted_rate'] * 100],
+            "Net Profit ($)": [campaign_results['blast_profit'], campaign_results['targeted_profit']]
+        })
+        fig_bar = px.bar(
+            comp_df,
+            x="Strategy",
+            y="Conversion Rate (%)",
+            color="Strategy",
+            color_discrete_sequence=["#64748b", "#6366f1"],
+            text_auto=".1f",
+            template="plotly_dark"
         )
-        uploaded = st.file_uploader(
-            "Choose a CSV file", type=["csv"], key=f"uploader_{st.session_state.get('uploader_n', 0)}"
+        fig_bar.update_layout(showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+    with col_chart2:
+        st.markdown("### 👥 Audience Persona Distribution")
+        fig_pie = px.pie(
+            personas_summary,
+            names="persona",
+            values="customers",
+            hole=0.45,
+            color_discrete_sequence=px.colors.qualitative.Prism,
+            template="plotly_dark"
         )
-        if uploaded is not None:
-            handle_upload(uploaded)
+        fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    with st.container(border=True):
-        st.markdown("#### Your datasets")
-        if not datasets:
-            st.info("No datasets yet. Upload a file above to get started.")
-            return
-        render_table(
-            pd.DataFrame(
-                [{"Name": d["name"], "Customers": f"{d['n_rows']:,}", "Uploaded (UTC)": d["uploaded_at"]} for d in datasets]
-            ),
-            index=False,
+# -----------------------------------------------------------------------------
+# View: 2. Customer Personas (Clustering)
+# -----------------------------------------------------------------------------
+elif menu == "👥 Customer Personas":
+    st.markdown("## 👥 Customer Personas & Behavioral Segmentation")
+    st.write("Using unsupervised K-Means clustering across spending, engagement, and visit history to discover distinct buyer personas.")
+    
+    # Persona Table
+    display_summary = personas_summary.copy()
+    display_summary["avg_income"] = display_summary["avg_income"].map("${:,.0f}".format)
+    display_summary["avg_spend"] = display_summary["avg_spend"].map("${:,.2f}".format)
+    display_summary["avg_visits"] = display_summary["avg_visits"].map("{:.1f}".format)
+    display_summary["avg_email_open"] = display_summary["avg_email_open"].map("{:.1%}".format)
+    display_summary["conversion_rate"] = display_summary["conversion_rate"].map("{:.1%}".format)
+    display_summary = display_summary.rename(columns={
+        "persona": "Persona",
+        "customers": "Customers",
+        "avg_income": "Avg Income",
+        "avg_spend": "Avg Past Spend",
+        "avg_visits": "Avg Website Visits",
+        "avg_email_open": "Email Open Rate",
+        "conversion_rate": "Historical Conversion"
+    })
+    
+    st.dataframe(display_summary.drop(columns=["cluster"]), use_container_width=True)
+    
+    # Persona Clustering Explorer with Combined vs Separated views
+    st.markdown("### 🔍 Customer Cluster Analysis")
+    
+    view_col1, view_col2 = st.columns([1.2, 1.8])
+    with view_col1:
+        cluster_view_mode = st.radio(
+            "Visualization Mode:",
+            ["🌈 Mixed (All Clusters Combined)", "📑 Split Grid (View Each Separately)", "🎯 Focus on Single Persona"],
+            horizontal=True
         )
-        with st.expander("Delete a dataset"):
-            n = st.session_state.get("delete_n", 0)
-            target = st.selectbox("Dataset to delete", dataset_ids, format_func=lambda i: dataset_names[i], key=f"delete_choice_{n}")
-            confirmed = st.checkbox("Yes, delete it permanently", key=f"delete_confirm_{n}")
-            if st.button("Delete dataset", disabled=not confirmed, key=f"delete_btn_{n}"):
-                if db.delete_dataset(role, account_id, target):
-                    db.log_event(username, role, "delete_dataset")
-                st.session_state["delete_n"] = n + 1
+    
+    unique_personas = list(personas_summary["persona"])
+    
+    if cluster_view_mode == "🌈 Mixed (All Clusters Combined)":
+        fig_scatter = px.scatter(
+            segmented_df,
+            x="income",
+            y="past_spend",
+            color="persona",
+            size="website_visits",
+            hover_data=["customer_id", "email_open_rate", "website_visits"],
+            labels={"income": "Annual Income ($)", "past_spend": "Past Spend ($)", "persona": "Persona"},
+            color_discrete_sequence=px.colors.qualitative.Prism,
+            template="plotly_dark",
+            title="Combined Audience Persona Map"
+        )
+        fig_scatter.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=480,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+    elif cluster_view_mode == "📑 Split Grid (View Each Separately)":
+        st.caption("Side-by-side behavioral breakdown: each customer persona rendered in its own dedicated subplot.")
+        fig_facet = px.scatter(
+            segmented_df,
+            x="income",
+            y="past_spend",
+            color="persona",
+            facet_col="persona",
+            facet_col_wrap=2,
+            size="website_visits",
+            hover_data=["customer_id", "email_open_rate"],
+            labels={"income": "Annual Income ($)", "past_spend": "Past Spend ($)", "persona": "Persona"},
+            color_discrete_sequence=px.colors.qualitative.Prism,
+            template="plotly_dark",
+            height=580
+        )
+        fig_facet.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False
+        )
+        st.plotly_chart(fig_facet, use_container_width=True)
+        
+    else:  # Focus on Single Persona
+        selected_persona = st.selectbox("Select Persona to Inspect Separately:", unique_personas)
+        subset_df = segmented_df[segmented_df["persona"] == selected_persona]
+        
+        c_p1, c_p2, c_p3 = st.columns(3)
+        c_p1.metric("Audience Size", f"{len(subset_df):,} customers", f"{(len(subset_df)/len(segmented_df)):.1%} of Total")
+        c_p2.metric("Average Past Spend", f"${subset_df['past_spend'].mean():,.2f}")
+        c_p3.metric("Persona Conversion Rate", f"{subset_df['converted'].mean():.1%}")
+        
+        fig_focus = px.scatter(
+            subset_df,
+            x="income",
+            y="past_spend",
+            color="converted",
+            size="website_visits",
+            color_continuous_scale=["#f43f5e", "#10b981"],
+            hover_data=["customer_id", "email_open_rate"],
+            labels={"income": "Annual Income ($)", "past_spend": "Past Spend ($)", "converted": "Converted (0/1)"},
+            template="plotly_dark",
+            title=f"Isolated Analysis: {selected_persona}"
+        )
+        fig_focus.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=450)
+        st.plotly_chart(fig_focus, use_container_width=True)
+    
+    # Actionable Marketing Recommendations
+    st.markdown("### 💡 Recommended Marketing Playbook by Persona")
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        st.info("⭐ **High-Value Loyalists**\n\nReward with exclusive VIP discounts, early product drop access, and premium concierge support to maximize retention.")
+    with t2:
+        st.warning("👀 **Window Shoppers**\n\nSend trigger-based browse abandonment reminders, limited-time countdown coupons, and social proof testimonials.")
+    with t3:
+        st.error("⚠️ **Disengaged / At-Risk**\n\nDeploy automated win-back reactivation email sequences or decrease email frequency to avoid list burnout.")
+
+# -----------------------------------------------------------------------------
+# View: 3. Conversion AI & Drivers
+# -----------------------------------------------------------------------------
+elif menu == "🧠 Conversion AI":
+    st.markdown(f"## 🧠 Conversion AI Engine ({st.session_state['model_type']})")
+    st.write("Understand what drives customer conversions and inspect model validation metrics evaluated on unseen cross-validation folds.")
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Accuracy", f"{model_results['accuracy']:.1%}")
+    m2.metric("Precision", f"{model_results['precision']:.1%}")
+    m3.metric("Recall", f"{model_results['recall']:.1%}")
+    m4.metric("ROC-AUC Score", f"{model_results['roc_auc']:.3f}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_feat, c_cm = st.columns([1.3, 1])
+    
+    with c_feat:
+        st.markdown("### 🎯 What Drives Conversions? (Feature Importance)")
+        weights = model_results["feature_importance"].reset_index()
+        weights.columns = ["Feature", "Importance"]
+        weights["Feature Name"] = weights["Feature"].map(engine.FEATURE_LABELS)
+        
+        fig_feat = px.bar(
+            weights,
+            x="Importance",
+            y="Feature Name",
+            orientation="h",
+            color="Importance",
+            color_continuous_scale=["#f43f5e", "#6366f1", "#10b981"],
+            template="plotly_dark"
+        )
+        fig_feat.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            yaxis={"autorange": "reversed"},
+            coloraxis_showscale=False
+        )
+        st.plotly_chart(fig_feat, use_container_width=True)
+        
+    with c_cm:
+        st.markdown("### 📊 Cross-Validation Confusion Matrix")
+        cm = model_results["confusion_matrix"]
+        fig_cm = px.imshow(
+            cm,
+            labels=dict(x="Predicted Conversion", y="Actual Conversion", color="Customers"),
+            x=["Did Not Convert", "Converted"],
+            y=["Did Not Convert", "Converted"],
+            text_auto=True,
+            color_continuous_scale="Purples",
+            template="plotly_dark"
+        )
+        fig_cm.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+# -----------------------------------------------------------------------------
+# View: 4. Campaign Optimizer & ROI
+# -----------------------------------------------------------------------------
+elif menu == "🚀 Campaign Optimizer":
+    st.markdown("## 🚀 Campaign Optimization & Financial Simulator")
+    st.write(f"Compare blanket mass email blasts with precision AI targeting targeting the top **{target_top_pct}%** most likely responders.")
+    
+    # Financial Controls
+    st.markdown("### 💵 Campaign Economics Settings")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        cost_msg = st.number_input("Cost per Contact / Message ($)", value=0.15, min_value=0.01, step=0.01)
+    with ec2:
+        val_conv = st.number_input("Average Order Value / Conversion ($)", value=65.00, min_value=1.00, step=5.00)
+        
+    sim = engine.simulate_campaign(
+        segmented_df,
+        model_results["probabilities"],
+        top_pct=target_top_pct,
+        cost_per_contact=cost_msg,
+        rev_per_conversion=val_conv
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Audience Size", f"{sim['n_target']:,} customers", f"Filtered from {sim['n_total']:,}")
+    r2.metric("Targeted Conversion", f"{sim['targeted_rate']:.1%}", f"{sim['lift']:+.1f}% vs Baseline")
+    r3.metric("Cost Savings", f"${sim['savings']:,.2f}", "Unspent Marketing Budget")
+    r4.metric("Net Profit Uplift", f"${sim['targeted_profit']:,.2f}", f"Targeted ROI: {sim['targeted_roi']:,.1f}%")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Export Ready Audience
+    st.markdown(f"### 🎯 Download AI-Targeted Customer Audience (Top {target_top_pct}%)")
+    export_df = sim["export_df"][["customer_id", "persona", "conversion_probability", "past_spend", "email_open_rate"]]
+    st.dataframe(export_df.head(10), use_container_width=True)
+    
+    csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label=f"📥 Download Export CSV ({len(export_df):,} Customers)",
+        data=csv_bytes,
+        file_name=f"dmaut_target_audience_top_{target_top_pct}pct.csv",
+        mime="text/csv"
+    )
+
+# -----------------------------------------------------------------------------
+# View: 5. Live Customer Predictor
+# -----------------------------------------------------------------------------
+elif menu == "🔮 Propensity Predictor":
+    st.markdown("## 🔮 Live Customer Conversion Predictor")
+    st.write("Test individual customer scenarios interactively to see how behavioral attributes influence their predicted probability of buying.")
+    
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        in_age = st.slider("Customer Age", 18, 80, 36)
+        in_income = st.slider("Annual Income ($)", 10000, 150000, 58000, step=2000)
+    with p2:
+        in_spend = st.slider("Past Spend ($)", 0, 15000, 3200, step=100)
+        in_visits = st.slider("Website Visits", 0, 30, 8)
+    with p3:
+        in_open = st.slider("Email Open Rate (%)", 0, 100, 45) / 100.0
+        in_recency = st.slider("Days Since Last Purchase", 1, 200, 22)
+        
+    query_customer = {
+        "age": in_age,
+        "income": in_income,
+        "past_spend": in_spend,
+        "website_visits": in_visits,
+        "email_open_rate": in_open,
+        "days_since_last_purchase": in_recency
+    }
+    
+    pred_prob, pred_class = engine.predict_single_customer(model_results["pipeline"], query_customer)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_res1, c_res2 = st.columns([1, 1.5])
+    
+    with c_res1:
+        st.markdown(f"""
+        <div class="metric-card" style="border-color: {'#10b981' if pred_class == 1 else '#f43f5e'};">
+            <div class="metric-title">Predicted Conversion Probability</div>
+            <div class="metric-val" style="color: {'#10b981' if pred_class == 1 else '#f43f5e'}; font-size:2.4rem;">
+                {pred_prob:.1%}
+            </div>
+            <div class="metric-sub" style="color: #ffffff; font-size:1rem;">
+                Outcome: {'✅ Likely to Convert (Target)' if pred_class == 1 else '❌ Unlikely to Convert (Skip/Nurture)'}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c_res2:
+        gauge_fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=pred_prob * 100,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "Propensity Score", 'font': {'color': '#f8fafc'}},
+            gauge={
+                'axis': {'range': [0, 100], 'tickcolor': "#94a3b8"},
+                'bar': {'color': "#6366f1"},
+                'steps': [
+                    {'range': [0, 40], 'color': "rgba(244, 63, 94, 0.25)"},
+                    {'range': [40, 70], 'color': "rgba(245, 158, 11, 0.25)"},
+                    {'range': [70, 100], 'color': "rgba(16, 185, 129, 0.25)"}
+                ],
+                'threshold': {
+                    'line': {'color': "#ffffff", 'width': 4},
+                    'thickness': 0.75,
+                    'value': 50
+                }
+            }
+        ))
+        gauge_fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "#ffffff"}, height=240)
+        st.plotly_chart(gauge_fig, use_container_width=True)
+
+# -----------------------------------------------------------------------------
+# View: 6. Data Manager
+# -----------------------------------------------------------------------------
+elif menu == "📂 Data Manager":
+    st.markdown("""
+    <div class="section-header">
+        <div>
+            <h2 class="section-title">Data Management Studio</h2>
+            <p class="section-caption">Upload customer audiences, download schema templates, or synthesize testing cohorts.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col_up, col_gen = st.columns([1.1, 0.9])
+    
+    with col_up:
+        with st.container():
+            st.markdown("""
+            <div class="card-container">
+                <div style="font-size:1.1rem; font-weight:700; color:#fff; margin-bottom:4px;">📤 Import Audience File</div>
+                <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:16px;">Accepts CSV format with historical campaign conversion flags.</div>
+            """, unsafe_allow_html=True)
+            
+            uploaded_file = st.file_uploader("Upload customer CSV", type=["csv"], label_visibility="collapsed")
+            if uploaded_file is not None:
+                try:
+                    user_df = pd.read_csv(uploaded_file)
+                    missing = [col for col in engine.FEATURES if col not in user_df.columns]
+                    if missing:
+                        st.error(f"Missing required columns in CSV: {', '.join(missing)}")
+                    else:
+                        if "converted" not in user_df.columns:
+                            st.error("CSV must contain a 'converted' column (1 or 0) for model training.")
+                        else:
+                            st.session_state["df"] = user_df
+                            st.success(f"✓ Audience verified & loaded: {len(user_df):,} customer records active.")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Error processing file: {e}")
+                    
+            st.markdown("</div>", unsafe_allow_html=True)
+                
+    with col_gen:
+        with st.container():
+            st.markdown("""
+            <div class="card-container">
+                <div style="font-size:1.1rem; font-weight:700; color:#fff; margin-bottom:4px;">⚡ Synthesize Customer Cohort</div>
+                <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:16px;">Generate statistically calibrated marketing audience records.</div>
+            """, unsafe_allow_html=True)
+            
+            n_rows = st.number_input("Audience Size", min_value=100, max_value=5000, value=600, step=100)
+            if st.button("Generate Fresh Dataset", use_container_width=True):
+                new_df = engine.generate_marketing_data(n_samples=n_rows)
+                st.session_state["df"] = new_df
+                st.success(f"Generated {n_rows:,} customer records with realistic engagement signals!")
                 st.rerun()
-
-
-SEGMENT_TIPS = {
-    "High-Value Loyalists": "reward and retain them with loyalty perks or early access.",
-    "Disengaged / At-Risk": "win them back with a re-engagement offer, or email them less often.",
-    "Browsers / Window Shoppers": "nudge them to buy with time-limited offers and reminders.",
-    "Steady Regulars": "nurture them with useful content and gentle upsells.",
-}
-
-
-def render_segmentation():
-    if profile is None:
-        return empty_state("Upload your customer data in the **📁 MY DATA** tab to see your customer segments.")
-    display = profile.copy()
-    display["income"] = display["income"].map("{:,.0f}".format)
-    display["past_spend"] = display["past_spend"].map("{:,.0f}".format)
-    display["website_visits"] = display["website_visits"].map("{:.1f}".format)
-    display["email_open_rate"] = display["email_open_rate"].map("{:.0%}".format)
-    display["conversion_rate"] = display["conversion_rate"].map("{:.0%}".format)
-    display["customers"] = display["customers"].map("{:,}".format)
-    display.columns = ["Avg Income", "Avg Past Spend", "Avg Website Visits", "Avg Email Open Rate", "Conversion Rate", "Customers"]
-    display.index.name = "Segment"
-
-    with st.container(border=True):
-        left, right = st.columns([1.1, 1])
-        with left:
-            st.markdown("#### Your customer groups")
-            render_table(display)
-            st.caption("Group names are automatic suggestions based on how each group behaves — rename them to fit your business.")
-        with right:
-            st.markdown("#### Income vs past spend")
-            fig, ax = plt.subplots(figsize=(5.5, 4))
-            for i, name in enumerate(profile.index):
-                subset = seg_df[seg_df["segment_label"] == name]
-                ax.scatter(subset["income"], subset["past_spend"], s=14, alpha=0.8, color=MPL_PALETTE[i % len(MPL_PALETTE)], label=name)
-            ax.set_xlabel("Income")
-            ax.set_ylabel("Past spend")
-            ax.legend(fontsize=7, frameon=False)
-            style_axes(ax)
-            show_fig(fig)
-    with st.container(border=True):
-        st.markdown("#### What to do with each group")
-        for name in profile.index:
-            tip = SEGMENT_TIPS.get(re.sub(r" \d+$", "", name))
-            if tip:
-                st.markdown(f"- **{name}** — {tip}")
-
-
-def render_prediction():
-    if model is None:
-        return empty_state("Upload your customer data in the **📁 MY DATA** tab to see what drives conversions.")
-    with st.container(border=True):
-        left, right = st.columns(2)
-        with left:
-            st.metric("Model accuracy", f"{model.accuracy:.1%}")
-            st.markdown("#### How often the AI was right")
-            fig, ax = plt.subplots(figsize=(4, 3.5))
-            cm = model.confusion
-            ax.imshow(cm, cmap="Oranges")
-            ax.set_xticks([0, 1])
-            ax.set_xticklabels(["Didn't convert", "Converted"])
-            ax.set_yticks([0, 1])
-            ax.set_yticklabels(["Didn't convert", "Converted"])
-            for i in range(2):
-                for j in range(2):
-                    ax.text(j, i, cm[i, j], ha="center", va="center", color="white" if cm[i, j] > cm.max() / 2 else "black")
-            ax.set_xlabel("AI predicted")
-            ax.set_ylabel("What really happened")
-            show_fig(fig)
-            correct = int(cm.trace())
-            st.caption(
-                f"The AI called {correct:,} of {int(cm.sum()):,} customers correctly. "
-                "Each customer was scored by a model that had never seen them."
-            )
-        with right:
-            st.markdown("#### What drives conversion?")
-            coefs = model.coefficients
-            fig, ax = plt.subplots(figsize=(5, 3.8))
-            ax.barh([analysis.FRIENDLY_NAMES[c] for c in coefs.index][::-1], coefs.values[::-1],
-                    color=[ORANGE if v > 0 else NAVY for v in coefs.values[::-1]])
-            ax.set_xlabel("Pushes conversion down  ←   →  pushes conversion up")
-            style_axes(ax)
-            show_fig(fig)
-            st.info(analysis.plain_english_drivers(coefs))
-            st.caption("These are patterns in your data, not proof of cause and effect.")
-
-
-def render_optimization():
-    if opt is None:
-        return empty_state("Upload your customer data in the **📁 MY DATA** tab to compare campaign strategies.")
-    with st.container(border=True):
-        a, b, c = st.columns(3)
-        a.metric("Email everyone", f"{opt.baseline_rate:.1%}")
-        b.metric(f"Target top {target_pct}%", f"{opt.targeted_rate:.1%}", f"{opt.lift:+.0%} lift")
-        c.metric("Customers contacted", f"{opt.n_targeted:,} of {opt.n_total:,}")
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        ax.bar(["Email everyone", f"Target top {target_pct}%"], [opt.baseline_rate * 100, opt.targeted_rate * 100], color=[NAVY, ORANGE])
-        ax.set_ylabel("Customers who convert (%)")
-        for i, v in enumerate([opt.baseline_rate * 100, opt.targeted_rate * 100]):
-            ax.text(i, v + 1, f"{v:.1f}%", ha="center", fontweight="bold", color=NAVY)
-        style_axes(ax)
-        show_fig(fig)
-        st.success(
-            f"By contacting only {opt.n_targeted:,} of your {opt.n_total:,} customers, about "
-            f"{opt.targeted_rate:.0%} would convert, compared with {opt.baseline_rate:.0%} if you emailed everyone."
-        )
-        st.caption("Estimated with cross-validation, so the AI never scores a customer it was trained on. Move the slider in the sidebar to test other audience sizes.")
-
-
-def render_admin_panel():
-    users, events = db.admin_overview()
-    with st.container(border=True):
-        a, b, c = st.columns(3)
-        a.metric("Registered users", f"{len(users):,}")
-        b.metric("Datasets uploaded", f"{sum(u['datasets'] for u in users):,}")
-        c.metric("Customers stored", f"{sum(u['customers'] for u in users):,}")
-        st.caption("Admins see account and activity information only — never a user's customer data.")
-    with st.container(border=True):
-        st.markdown("#### Users")
-        if users:
-            render_table(pd.DataFrame(users).rename(columns={"username": "Username", "created_at": "Joined (UTC)", "datasets": "Datasets", "customers": "Customers"}), index=False)
-        else:
-            st.info("No users have signed up yet.")
-    with st.container(border=True):
-        st.markdown("#### Recent activity")
-        if events:
-            render_table(pd.DataFrame(events).rename(columns={"ts": "Time (UTC)", "actor": "Who", "role": "Role", "action": "Action", "detail": "Details"}), index=False)
-        else:
-            st.info("No activity recorded yet.")
-
-
-tab_names = ["MY DATA", "SEGMENTATION", "PREDICTION", "OPTIMIZATION"] + (["ADMIN PANEL"] if is_admin else [])
-tabs = st.tabs(tab_names)
-with tabs[0]:
-    render_my_data()
-with tabs[1]:
-    render_segmentation()
-with tabs[2]:
-    render_prediction()
-with tabs[3]:
-    render_optimization()
-if is_admin:
-    with tabs[4]:
-        render_admin_panel()
-
-if selected_page == "Overview":
-    render_overview_page()
-elif selected_page == "My Data":
-    render_my_data()
-elif selected_page == "Segmentation":
-    render_segmentation()
-elif selected_page == "Prediction":
-    render_prediction()
-elif selected_page == "Optimization":
-    render_optimization()
-elif selected_page == "Admin" and is_admin:
-    render_admin_panel()
-else:
-    render_overview_page()
+                
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Active Dataset Header & Clean Data Preview
+    st.markdown("""
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="font-size:1.15rem; font-weight:700; color:#fff;">📋 Active Audience Database</div>
+        <div style="font-size:0.82rem; color:#38bdf8; font-weight:600;">Status: Ready for Modeling</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Clean preview with formatted columns
+    preview_df = df.head(15).copy()
+    if "income" in preview_df.columns:
+        preview_df["income"] = preview_df["income"].map("${:,.0f}".format)
+    if "past_spend" in preview_df.columns:
+        preview_df["past_spend"] = preview_df["past_spend"].map("${:,.2f}".format)
+    if "email_open_rate" in preview_df.columns:
+        preview_df["email_open_rate"] = preview_df["email_open_rate"].map("{:.1%}".format)
+    if "converted" in preview_df.columns:
+        preview_df["converted"] = preview_df["converted"].map(lambda x: "✓ Converted (1)" if x == 1 else "✗ No (0)")
+        
+    st.dataframe(preview_df, use_container_width=True, height=380)
