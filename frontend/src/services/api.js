@@ -1,8 +1,27 @@
 /**
  * API Service Client
- * Connects frontend to Express backend endpoints, reads configured AI keys,
- * and maintains resilience.
+ * Includes user session token authorization, AI config, and per-user endpoints
  */
+
+export function getStoredToken() {
+  try {
+    const raw = localStorage.getItem('dmaut_auth');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed.token || '';
+    }
+  } catch {}
+  return '';
+}
+
+function getAuthHeaders() {
+  const token = getStoredToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 // Helper to get stored AI config
 export function getAIConfig() {
@@ -33,7 +52,7 @@ export async function apiGenerateContent({ type, product, audience, tone, keyBen
 
   const res = await fetch('/api/ai/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
       type,
       product,
@@ -54,7 +73,9 @@ export async function apiGenerateContent({ type, product, audience, tone, keyBen
 // 2. Campaign Manager
 export async function apiGetCampaigns(params = {}) {
   const query = new URLSearchParams(params).toString();
-  const res = await fetch(`/api/campaigns?${query}`);
+  const res = await fetch(`/api/campaigns?${query}`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Failed to fetch campaigns');
   return await res.json();
 }
@@ -62,7 +83,7 @@ export async function apiGetCampaigns(params = {}) {
 export async function apiCreateCampaign(data) {
   const res = await fetch('/api/campaigns', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Failed to create campaign');
@@ -72,7 +93,7 @@ export async function apiCreateCampaign(data) {
 export async function apiUpdateCampaign(id, data) {
   const res = await fetch(`/api/campaigns/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Failed to update campaign');
@@ -81,7 +102,8 @@ export async function apiUpdateCampaign(id, data) {
 
 export async function apiDuplicateCampaign(id) {
   const res = await fetch(`/api/campaigns/${id}/duplicate`, {
-    method: 'POST'
+    method: 'POST',
+    headers: getAuthHeaders()
   });
   if (!res.ok) throw new Error('Failed to duplicate campaign');
   return await res.json();
@@ -89,16 +111,27 @@ export async function apiDuplicateCampaign(id) {
 
 export async function apiDeleteCampaign(id) {
   const res = await fetch(`/api/campaigns/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders()
   });
   if (!res.ok) throw new Error('Failed to delete campaign');
+  return await res.json();
+}
+
+export async function apiLoadStarterCampaigns() {
+  const res = await fetch('/api/campaigns/load-starter', {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
   return await res.json();
 }
 
 // 3. Smart Customer Segmentation
 export async function apiGetSegments(params = {}) {
   const query = new URLSearchParams(params).toString();
-  const res = await fetch(`/api/segments?${query}`);
+  const res = await fetch(`/api/segments?${query}`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Failed to fetch segments');
   return await res.json();
 }
@@ -106,7 +139,7 @@ export async function apiGetSegments(params = {}) {
 export async function apiUploadCustomerCSV(csvText) {
   const res = await fetch('/api/segments/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ csvText, replace: true })
   });
   if (!res.ok) {
@@ -118,15 +151,26 @@ export async function apiUploadCustomerCSV(csvText) {
 
 export async function apiResetSampleCustomers() {
   const res = await fetch('/api/segments/reset-sample', {
-    method: 'POST'
+    method: 'POST',
+    headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to reset sample data');
+  if (!res.ok) throw new Error('Failed to load sample data');
+  return await res.json();
+}
+
+export async function apiClearCustomers() {
+  const res = await fetch('/api/segments/clear', {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
   return await res.json();
 }
 
 // 4. Marketing Automations
 export async function apiGetAutomations() {
-  const res = await fetch('/api/automations');
+  const res = await fetch('/api/automations', {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Failed to fetch automations');
   return await res.json();
 }
@@ -134,7 +178,7 @@ export async function apiGetAutomations() {
 export async function apiCreateAutomation(data) {
   const res = await fetch('/api/automations', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Failed to create automation');
@@ -144,7 +188,7 @@ export async function apiCreateAutomation(data) {
 export async function apiUpdateAutomation(id, data) {
   const res = await fetch(`/api/automations/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Failed to update automation');
@@ -153,7 +197,8 @@ export async function apiUpdateAutomation(id, data) {
 
 export async function apiDeleteAutomation(id) {
   const res = await fetch(`/api/automations/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders()
   });
   if (!res.ok) throw new Error('Failed to delete automation');
   return await res.json();
@@ -162,10 +207,21 @@ export async function apiDeleteAutomation(id) {
 export async function apiSimulateAutomations(ruleId = null) {
   const res = await fetch('/api/automations/simulate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ ruleId })
   });
-  if (!res.ok) throw new Error('Simulation failed');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Simulation failed' }));
+    throw new Error(err.error || 'Simulation failed');
+  }
+  return await res.json();
+}
+
+export async function apiLoadStarterAutomations() {
+  const res = await fetch('/api/automations/load-starter', {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
   return await res.json();
 }
 
@@ -177,7 +233,7 @@ export async function apiOptimizeABTest({ versionA, versionB, metricGoal }) {
 
   const res = await fetch('/api/ai/optimize', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
       versionA,
       versionB,
@@ -193,7 +249,9 @@ export async function apiOptimizeABTest({ versionA, versionB, metricGoal }) {
 
 // 6. Analytics Dashboard & AI Insights
 export async function apiGetAnalytics() {
-  const res = await fetch('/api/analytics');
+  const res = await fetch('/api/analytics', {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Failed to fetch analytics');
   return await res.json();
 }
@@ -205,7 +263,7 @@ export async function apiGetAIInsights(summaryMetrics, topCampaigns, segments) {
 
   const res = await fetch('/api/ai/insights', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
       summaryMetrics,
       topCampaigns,
@@ -222,8 +280,64 @@ export async function apiGetAIInsights(summaryMetrics, topCampaigns, segments) {
 export async function apiVerifyKey(provider, apiKey, model) {
   const res = await fetch('/api/ai/verify-key', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ provider, apiKey, model })
   });
+  return await res.json();
+}
+
+// 7. Profile & Account Management
+export async function apiUpdateProfile({ name, email }) {
+  const res = await fetch('/api/auth/profile', {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ name, email })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Update failed' }));
+    throw new Error(err.error || 'Failed to update profile');
+  }
+  return await res.json();
+}
+
+export async function apiChangePassword({ currentPassword, newPassword }) {
+  const res = await fetch('/api/auth/password', {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Password change failed' }));
+    throw new Error(err.error || 'Failed to change password');
+  }
+  return await res.json();
+}
+
+export async function apiSwitchAccountType(accountType) {
+  const res = await fetch('/api/auth/account-type', {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ accountType })
+  });
+  if (!res.ok) throw new Error('Failed to switch account type');
+  return await res.json();
+}
+
+export async function apiUpdateSettings(settings) {
+  const res = await fetch('/api/auth/settings', {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(settings)
+  });
+  if (!res.ok) throw new Error('Failed to update settings');
+  return await res.json();
+}
+
+export async function apiDeleteAccount() {
+  const res = await fetch('/api/auth/account', {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Failed to delete account');
   return await res.json();
 }

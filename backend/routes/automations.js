@@ -1,22 +1,24 @@
 import express from 'express';
-import { loadDB, saveDB } from '../data/store.js';
+import { saveDB } from '../data/store.js';
 import { segmentCustomers } from '../services/rfmSegmentation.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
+router.use(requireAuth);
 
 /**
- * List all automation rules and recent logs
+ * List all automations for current user
  */
 router.get('/', (req, res) => {
-  const db = loadDB();
+  const user = req.user;
   res.json({
-    automations: db.automations || [],
-    logs: db.automationLogs || []
+    automations: user.automations || [],
+    logs: user.automationLogs || []
   });
 });
 
 /**
- * Create automation rule
+ * Create automation rule for current user
  */
 router.post('/', (req, res) => {
   const { name, trigger, triggerCondition, action, channel = 'Email', isActive = true } = req.body;
@@ -25,7 +27,10 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Name, trigger, and action are required' });
   }
 
-  const db = loadDB();
+  const user = req.user;
+  const db = req.db;
+  if (!user.automations) user.automations = [];
+
   const newRule = {
     id: `auto-${Date.now()}`,
     name,
@@ -38,45 +43,47 @@ router.post('/', (req, res) => {
     createdAt: new Date().toISOString()
   };
 
-  db.automations.push(newRule);
+  user.automations.push(newRule);
   saveDB(db);
 
   res.status(201).json({ message: 'Automation rule created', automation: newRule });
 });
 
 /**
- * Update automation rule (or toggle active)
+ * Update automation rule for current user
  */
 router.put('/:id', (req, res) => {
-  const db = loadDB();
-  const index = db.automations.findIndex(a => a.id === req.params.id);
+  const user = req.user;
+  const db = req.db;
+  const index = (user.automations || []).findIndex(a => a.id === req.params.id);
 
   if (index === -1) {
     return res.status(404).json({ error: 'Automation rule not found' });
   }
 
-  const existing = db.automations[index];
+  const existing = user.automations[index];
   const updated = {
     ...existing,
     ...req.body,
     id: existing.id
   };
 
-  db.automations[index] = updated;
+  user.automations[index] = updated;
   saveDB(db);
 
   res.json({ message: 'Automation updated', automation: updated });
 });
 
 /**
- * Delete automation rule
+ * Delete automation rule for current user
  */
 router.delete('/:id', (req, res) => {
-  const db = loadDB();
-  const initialLength = db.automations.length;
-  db.automations = db.automations.filter(a => a.id !== req.params.id);
+  const user = req.user;
+  const db = req.db;
+  const initialLength = (user.automations || []).length;
+  user.automations = (user.automations || []).filter(a => a.id !== req.params.id);
 
-  if (db.automations.length === initialLength) {
+  if (user.automations.length === initialLength) {
     return res.status(404).json({ error: 'Automation rule not found' });
   }
 
@@ -85,28 +92,32 @@ router.delete('/:id', (req, res) => {
 });
 
 /**
- * Run / Simulate automation rules on active customer dataset
+ * Simulate automation rules against current user's customer base
  */
 router.post('/simulate', (req, res) => {
   const { ruleId } = req.body;
-  const db = loadDB();
-  const customers = db.customers || [];
+  const user = req.user;
+  const db = req.db;
+  const customers = user.customers || [];
   const { customers: segmented } = segmentCustomers(customers);
 
-  let targetRules = db.automations.filter(a => a.isActive);
+  let targetRules = (user.automations || []).filter(a => a.isActive);
   if (ruleId) {
-    targetRules = db.automations.filter(a => a.id === ruleId);
+    targetRules = (user.automations || []).filter(a => a.id === ruleId);
   }
 
   if (targetRules.length === 0) {
-    return res.status(400).json({ error: 'No active automation rules to simulate.' });
+    return res.status(400).json({ error: 'No active automation rules to simulate. Create or activate a rule first.' });
+  }
+
+  if (segmented.length === 0) {
+    return res.status(400).json({ error: 'No customers available to simulate on. Import or add customers in Segmentation first.' });
   }
 
   const newLogs = [];
   const now = new Date().toISOString();
 
   targetRules.forEach(rule => {
-    // Determine matching customers based on trigger logic
     let matchedCustomers = [];
     const triggerLower = rule.trigger.toLowerCase();
 
@@ -142,15 +153,53 @@ router.post('/simulate', (req, res) => {
     rule.stats.lastFired = now;
   });
 
-  db.automationLogs = [...newLogs, ...(db.automationLogs || [])].slice(0, 50);
+  user.automationLogs = [...newLogs, ...(user.automationLogs || [])].slice(0, 50);
   saveDB(db);
 
   res.json({
     message: `Simulation executed successfully! Generated ${newLogs.length} automated events.`,
     simulatedEventsCount: newLogs.length,
     newLogs: newLogs,
-    updatedAutomations: db.automations
+    updatedAutomations: user.automations
   });
+});
+
+/**
+ * Load starter automation presets on-demand
+ */
+router.post('/load-starter', (req, res) => {
+  const user = req.user;
+  const db = req.db;
+
+  const starter = [
+    {
+      id: `auto-${Date.now()}-1`,
+      name: 'Instant Welcome Sequence',
+      trigger: 'Customer Signs Up',
+      triggerCondition: 'Immediate',
+      action: 'Send Welcome Email + 10% Discount Code',
+      channel: 'Email',
+      isActive: true,
+      stats: { triggeredCount: 0, executionSuccess: 0, lastFired: null },
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: `auto-${Date.now()}-2`,
+      name: 'Inactive Customer Re-Engagement',
+      trigger: 'Customer Inactive > 45 Days',
+      triggerCondition: 'Days Inactive >= 45 and Past Spend > $100',
+      action: 'Prepare Win-Back Email with $20 Credit',
+      channel: 'Email',
+      isActive: true,
+      stats: { triggeredCount: 0, executionSuccess: 0, lastFired: null },
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  user.automations = [...starter, ...(user.automations || [])];
+  saveDB(db);
+
+  res.json({ message: 'Loaded starter automation templates', automations: user.automations });
 });
 
 export default router;

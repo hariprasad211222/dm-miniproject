@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   apiGetSegments,
   apiUploadCustomerCSV,
-  apiResetSampleCustomers
+  apiResetSampleCustomers,
+  apiClearCustomers
 } from '../../services/api.js';
 import StatCard from '../common/StatCard.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -18,7 +19,8 @@ import {
   Activity,
   UserPlus,
   AlertTriangle,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 
 export default function CustomerSegmentation({ onTargetInCampaign }) {
@@ -96,7 +98,18 @@ export default function CustomerSegmentation({ onTargetInCampaign }) {
       showToast(res.message, 'success');
       fetchSegments();
     } catch (err) {
-      showToast('Reset failed: ' + err.message, 'error');
+      showToast('Loading sample failed: ' + err.message, 'error');
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm('Are you sure you want to clear all imported customers?')) return;
+    try {
+      await apiClearCustomers();
+      showToast('All customer records cleared', 'info');
+      fetchSegments();
+    } catch (err) {
+      showToast('Clear failed: ' + err.message, 'error');
     }
   };
 
@@ -186,10 +199,22 @@ export default function CustomerSegmentation({ onTargetInCampaign }) {
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={handleResetSample}
-            title="Reload initial demo dataset"
+            title="Load sample customer dataset for testing"
           >
-            <RotateCcw size={14} /> Reload Demo Data
+            <RotateCcw size={14} /> Load Starter Data
           </button>
+
+          {(segmentData.customers || []).length > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleClearAll}
+              title="Clear all customer records from workspace"
+              style={{ color: '#ef4444' }}
+            >
+              <Trash2 size={14} /> Clear All
+            </button>
+          )}
 
           <button
             type="button"

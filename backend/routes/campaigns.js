@@ -1,15 +1,17 @@
 import express from 'express';
-import { loadDB, saveDB } from '../data/store.js';
+import { saveDB } from '../data/store.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
+router.use(requireAuth);
 
 /**
- * List all campaigns with filtering
+ * List campaigns for the authenticated user
  */
 router.get('/', (req, res) => {
   const { status, channel, search } = req.query;
-  const db = loadDB();
-  let campaigns = db.campaigns || [];
+  const user = req.user;
+  let campaigns = user.campaigns || [];
 
   if (status && status !== 'All') {
     campaigns = campaigns.filter(c => c.status.toLowerCase() === status.toLowerCase());
@@ -32,19 +34,7 @@ router.get('/', (req, res) => {
 });
 
 /**
- * Get campaign by ID
- */
-router.get('/:id', (req, res) => {
-  const db = loadDB();
-  const campaign = db.campaigns.find(c => c.id === req.params.id);
-  if (!campaign) {
-    return res.status(404).json({ error: 'Campaign not found' });
-  }
-  res.json({ campaign });
-});
-
-/**
- * Create campaign
+ * Create campaign for current user
  */
 router.post('/', (req, res) => {
   const {
@@ -55,15 +45,18 @@ router.post('/', (req, res) => {
     subjectLine = '',
     content = '',
     scheduledDate = new Date().toISOString(),
-    audienceSize = 1000,
-    budget = 500
+    audienceSize = 500,
+    budget = 100
   } = req.body;
 
   if (!title) {
     return res.status(400).json({ error: 'Campaign title is required' });
   }
 
-  const db = loadDB();
+  const user = req.user;
+  const db = req.db;
+  if (!user.campaigns) user.campaigns = [];
+
   const newCampaign = {
     id: `cmp-${Date.now()}`,
     title,
@@ -73,36 +66,37 @@ router.post('/', (req, res) => {
     subjectLine,
     content,
     scheduledDate,
-    audienceSize: Number(audienceSize) || 1000,
+    audienceSize: Number(audienceSize) || 500,
     budget: Number(budget) || 0,
     metrics: {
-      sent: status === 'Active' ? Number(audienceSize) || 1000 : 0,
-      opened: status === 'Active' ? Math.round((Number(audienceSize) || 1000) * 0.42) : 0,
-      clicks: status === 'Active' ? Math.round((Number(audienceSize) || 1000) * 0.16) : 0,
-      conversions: status === 'Active' ? Math.round((Number(audienceSize) || 1000) * 0.045) : 0,
-      revenue: status === 'Active' ? Math.round((Number(audienceSize) || 1000) * 0.045 * 85) : 0
+      sent: status === 'Active' ? Number(audienceSize) || 500 : 0,
+      opened: status === 'Active' ? Math.round((Number(audienceSize) || 500) * 0.42) : 0,
+      clicks: status === 'Active' ? Math.round((Number(audienceSize) || 500) * 0.16) : 0,
+      conversions: status === 'Active' ? Math.round((Number(audienceSize) || 500) * 0.045) : 0,
+      revenue: status === 'Active' ? Math.round((Number(audienceSize) || 500) * 0.045 * 85) : 0
     },
     createdAt: new Date().toISOString()
   };
 
-  db.campaigns.unshift(newCampaign);
+  user.campaigns.unshift(newCampaign);
   saveDB(db);
 
   res.status(201).json({ message: 'Campaign created successfully', campaign: newCampaign });
 });
 
 /**
- * Update campaign
+ * Update campaign for current user
  */
 router.put('/:id', (req, res) => {
-  const db = loadDB();
-  const index = db.campaigns.findIndex(c => c.id === req.params.id);
+  const user = req.user;
+  const db = req.db;
+  const index = (user.campaigns || []).findIndex(c => c.id === req.params.id);
 
   if (index === -1) {
     return res.status(404).json({ error: 'Campaign not found' });
   }
 
-  const existing = db.campaigns[index];
+  const existing = user.campaigns[index];
   const updated = {
     ...existing,
     ...req.body,
@@ -110,9 +104,8 @@ router.put('/:id', (req, res) => {
     updatedAt: new Date().toISOString()
   };
 
-  // If status changed to Active and metrics were zero, simulate initial delivery
   if (req.body.status === 'Active' && existing.metrics?.sent === 0) {
-    const size = updated.audienceSize || 1200;
+    const size = updated.audienceSize || 500;
     updated.metrics = {
       sent: size,
       opened: Math.round(size * 0.44),
@@ -122,18 +115,19 @@ router.put('/:id', (req, res) => {
     };
   }
 
-  db.campaigns[index] = updated;
+  user.campaigns[index] = updated;
   saveDB(db);
 
   res.json({ message: 'Campaign updated successfully', campaign: updated });
 });
 
 /**
- * Duplicate campaign
+ * Duplicate campaign for current user
  */
 router.post('/:id/duplicate', (req, res) => {
-  const db = loadDB();
-  const original = db.campaigns.find(c => c.id === req.params.id);
+  const user = req.user;
+  const db = req.db;
+  const original = (user.campaigns || []).find(c => c.id === req.params.id);
 
   if (!original) {
     return res.status(404).json({ error: 'Campaign not found' });
@@ -148,26 +142,57 @@ router.post('/:id/duplicate', (req, res) => {
     createdAt: new Date().toISOString()
   };
 
-  db.campaigns.unshift(copy);
+  user.campaigns.unshift(copy);
   saveDB(db);
 
   res.status(201).json({ message: 'Campaign duplicated', campaign: copy });
 });
 
 /**
- * Delete campaign
+ * Delete campaign for current user
  */
 router.delete('/:id', (req, res) => {
-  const db = loadDB();
-  const initialLength = db.campaigns.length;
-  db.campaigns = db.campaigns.filter(c => c.id !== req.params.id);
+  const user = req.user;
+  const db = req.db;
+  const initialLength = (user.campaigns || []).length;
+  user.campaigns = (user.campaigns || []).filter(c => c.id !== req.params.id);
 
-  if (db.campaigns.length === initialLength) {
+  if (user.campaigns.length === initialLength) {
     return res.status(404).json({ error: 'Campaign not found' });
   }
 
   saveDB(db);
   res.json({ message: 'Campaign deleted successfully' });
+});
+
+/**
+ * Optional: Load starter pack campaigns if user explicitly asks
+ */
+router.post('/load-starter', (req, res) => {
+  const user = req.user;
+  const db = req.db;
+
+  const starter = [
+    {
+      id: `cmp-${Date.now()}-1`,
+      title: 'Spring Product Launch',
+      channel: 'Email',
+      status: 'Active',
+      targetSegment: 'All Customers',
+      subjectLine: 'Exclusive First Access: Meet the New Collection',
+      content: 'Early access is unlocked today for all members. Use code SPRING20 for 20% off.',
+      scheduledDate: new Date().toISOString(),
+      audienceSize: 1200,
+      budget: 350,
+      metrics: { sent: 1200, opened: 540, clicks: 180, conversions: 42, revenue: 3570 },
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  user.campaigns = [...starter, ...(user.campaigns || [])];
+  saveDB(db);
+
+  res.json({ message: 'Starter campaign loaded', campaigns: user.campaigns });
 });
 
 export default router;

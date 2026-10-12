@@ -1,43 +1,57 @@
 import express from 'express';
 import { loadDB, saveDB } from '../data/store.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
 /**
- * Register a new user
+ * Register a new user with Personal or Business account type
  */
 router.post('/register', (req, res) => {
-  const { name, email, password, role = 'Marketing Strategist' } = req.body;
+  const { name, email, password, accountType = 'business', role } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  const cleanEmail = email.toLowerCase().trim();
   const db = loadDB();
-  const existing = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const existing = db.users.find(u => u.email.toLowerCase() === cleanEmail);
 
   if (existing) {
     return res.status(409).json({ error: 'An account with this email already exists' });
   }
 
+  const type = (accountType === 'personal' || accountType === 'business') ? accountType : 'business';
+
   const newUser = {
     id: `usr-${Date.now()}`,
-    name: name || email.split('@')[0],
-    email: email.toLowerCase().trim(),
-    password: password, // In production, hash with bcrypt; here stored cleanly for mock/prototype
-    role: role,
+    name: name?.trim() || cleanEmail.split('@')[0],
+    email: cleanEmail,
+    password: password,
+    accountType: type,
+    role: role || (type === 'personal' ? 'Creator / Solo Marketer' : 'Marketing Director'),
     token: `token-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    settings: {
+      showTourOnStartup: true,
+      theme: 'system',
+      defaultTone: 'Professional'
+    },
+    campaigns: [],
+    customers: [],
+    automations: [],
+    abTests: [],
+    automationLogs: []
   };
 
   db.users.push(newUser);
   saveDB(db);
 
-  // Return user without password
-  const { password: _, ...userWithoutPass } = newUser;
+  const { password: _, campaigns, customers, automations, abTests, automationLogs, ...userMeta } = newUser;
   return res.status(201).json({
-    message: 'Registration successful',
-    user: userWithoutPass,
+    message: 'Account created successfully',
+    user: userMeta,
     token: newUser.token
   });
 });
@@ -52,8 +66,9 @@ router.post('/login', (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  const cleanEmail = email.toLowerCase().trim();
   const db = loadDB();
-  const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  const user = db.users.find(u => u.email.toLowerCase() === cleanEmail);
 
   if (!user || user.password !== password) {
     return res.status(401).json({ error: 'Invalid email or password' });
@@ -63,10 +78,10 @@ router.post('/login', (req, res) => {
   user.token = token;
   saveDB(db);
 
-  const { password: _, ...userWithoutPass } = user;
+  const { password: _, campaigns, customers, automations, abTests, automationLogs, ...userMeta } = user;
   return res.json({
     message: 'Login successful',
-    user: userWithoutPass,
+    user: userMeta,
     token: token
   });
 });
@@ -74,22 +89,102 @@ router.post('/login', (req, res) => {
 /**
  * Verify current session
  */
-router.get('/me', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header provided' });
+router.get('/me', requireAuth, (req, res) => {
+  const { password: _, campaigns, customers, automations, abTests, automationLogs, ...userMeta } = req.user;
+  return res.json({ user: userMeta });
+});
+
+/**
+ * Update profile details (Name, Email)
+ */
+router.put('/profile', requireAuth, (req, res) => {
+  const { name, email } = req.body;
+  const user = req.user;
+  const db = req.db;
+
+  if (email && email.toLowerCase().trim() !== user.email) {
+    const cleanEmail = email.toLowerCase().trim();
+    const clash = db.users.find(u => u.id !== user.id && u.email.toLowerCase() === cleanEmail);
+    if (clash) {
+      return res.status(409).json({ error: 'Another account already uses this email' });
+    }
+    user.email = cleanEmail;
   }
 
-  const token = authHeader.replace('Bearer ', '');
-  const db = loadDB();
-  const user = db.users.find(u => u.token === token);
-
-  if (!user) {
-    return res.status(401).json({ error: 'Session expired or invalid' });
+  if (name) {
+    user.name = name.trim();
   }
 
-  const { password: _, ...userWithoutPass } = user;
-  return res.json({ user: userWithoutPass });
+  saveDB(db);
+  const { password: _, campaigns, customers, automations, abTests, automationLogs, ...userMeta } = user;
+  res.json({ message: 'Profile updated successfully', user: userMeta });
+});
+
+/**
+ * Change password
+ */
+router.put('/password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const user = req.user;
+  const db = req.db;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required' });
+  }
+
+  if (user.password !== currentPassword) {
+    return res.status(401).json({ error: 'Incorrect current password' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  user.password = newPassword;
+  saveDB(db);
+  res.json({ message: 'Password updated successfully' });
+});
+
+/**
+ * Switch account type (Personal <-> Business)
+ */
+router.put('/account-type', requireAuth, (req, res) => {
+  const { accountType } = req.body;
+  const user = req.user;
+  const db = req.db;
+
+  if (accountType !== 'personal' && accountType !== 'business') {
+    return res.status(400).json({ error: 'Invalid account type. Must be "personal" or "business"' });
+  }
+
+  user.accountType = accountType;
+  saveDB(db);
+  const { password: _, campaigns, customers, automations, abTests, automationLogs, ...userMeta } = user;
+  res.json({ message: `Switched to ${accountType === 'business' ? 'Business Pro' : 'Personal Creator'} account`, user: userMeta });
+});
+
+/**
+ * Update user settings (e.g. showTourOnStartup)
+ */
+router.put('/settings', requireAuth, (req, res) => {
+  const user = req.user;
+  const db = req.db;
+  user.settings = { ...user.settings, ...req.body };
+  saveDB(db);
+  res.json({ message: 'Settings saved', settings: user.settings });
+});
+
+/**
+ * Delete account and all associated user data
+ */
+router.delete('/account', requireAuth, (req, res) => {
+  const user = req.user;
+  const db = req.db;
+
+  db.users = db.users.filter(u => u.id !== user.id);
+  saveDB(db);
+
+  res.json({ message: 'Your account and all workspace data have been deleted permanently.' });
 });
 
 export default router;

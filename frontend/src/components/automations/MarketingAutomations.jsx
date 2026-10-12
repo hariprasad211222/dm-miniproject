@@ -3,7 +3,8 @@ import {
   apiGetAutomations,
   apiUpdateAutomation,
   apiDeleteAutomation,
-  apiSimulateAutomations
+  apiSimulateAutomations,
+  apiLoadStarterAutomations
 } from '../../services/api.js';
 import RuleEditorModal from './RuleEditorModal.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -130,8 +131,34 @@ export default function MarketingAutomations() {
               Loading automation rules...
             </div>
           ) : automations.length === 0 ? (
-            <div className="card" style={{ padding: 36, textAlign: 'center', color: 'var(--text-muted)' }}>
-              No automation rules created yet. Click "New Automation Rule" to add your first workflow.
+            <div className="card" style={{ padding: 36, textAlign: 'center' }}>
+              <div style={{ color: 'var(--text-muted)', marginBottom: 14 }}>
+                No automation rules created yet in your workspace. Build a custom trigger or load standard presets.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    try {
+                      await apiLoadStarterAutomations();
+                      showToast('Starter automation rules loaded', 'success');
+                      fetchAutomations();
+                    } catch (err) {
+                      showToast('Error loading starter: ' + err.message, 'error');
+                    }
+                  }}
+                >
+                  Load Starter Workflows
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => { setSelectedRule(null); setIsEditorOpen(true); }}
+                >
+                  <Plus size={14} /> New Automation Rule
+                </button>
+              </div>
             </div>
           ) : (
             automations.map(rule => (

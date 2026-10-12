@@ -3,7 +3,8 @@ import {
   apiGetCampaigns,
   apiDeleteCampaign,
   apiDuplicateCampaign,
-  apiUpdateCampaign
+  apiUpdateCampaign,
+  apiLoadStarterCampaigns
 } from '../../services/api.js';
 import CampaignFormModal from './CampaignFormModal.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -208,8 +209,34 @@ export default function CampaignManager({ targetSegmentPreset = '' }) {
               </tr>
             ) : campaigns.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No campaigns found matching your criteria. Click "Create Campaign" to launch a new one.
+                <td colSpan={7} style={{ padding: 48, textAlign: 'center' }}>
+                  <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
+                    No campaigns found in your workspace. Create a new campaign or load a starter template.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={async () => {
+                        try {
+                          await apiLoadStarterCampaigns();
+                          showToast('Starter campaign loaded', 'success');
+                          fetchCampaigns();
+                        } catch (err) {
+                          showToast('Error loading starter: ' + err.message, 'error');
+                        }
+                      }}
+                    >
+                      Load Starter Campaign
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => { setSelectedCampaign(null); setIsFormOpen(true); }}
+                    >
+                      <Plus size={14} /> Create Campaign
+                    </button>
+                  </div>
                 </td>
               </tr>
             ) : (

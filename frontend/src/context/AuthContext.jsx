@@ -21,8 +21,7 @@ export function AuthProvider({ children }) {
     }
   });
 
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (user && token) {
@@ -33,6 +32,7 @@ export function AuthProvider({ children }) {
   }, [user, token]);
 
   const login = async (email, password) => {
+    setLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -48,34 +48,19 @@ export function AuthProvider({ children }) {
       const data = await res.json();
       setUser(data.user);
       setToken(data.token);
-      setIsAuthModalOpen(false);
       return { success: true };
-    } catch (err) {
-      // Fallback local mock login if backend is unreachable
-      if (email && password) {
-        const mockUser = {
-          id: 'usr-local',
-          name: email.split('@')[0],
-          email: email,
-          role: email.includes('admin') ? 'Administrator' : 'Marketing Specialist',
-          createdAt: new Date().toISOString()
-        };
-        const mockToken = `mock-token-${Date.now()}`;
-        setUser(mockUser);
-        setToken(mockToken);
-        setIsAuthModalOpen(false);
-        return { success: true, offline: true };
-      }
-      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const register = async (name, email, password, role) => {
+  const register = async (name, email, password, accountType = 'business') => {
+    setLoading(true);
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role })
+        body: JSON.stringify({ name, email, password, accountType })
       });
 
       if (!res.ok) {
@@ -86,25 +71,14 @@ export function AuthProvider({ children }) {
       const data = await res.json();
       setUser(data.user);
       setToken(data.token);
-      setIsAuthModalOpen(false);
       return { success: true };
-    } catch (err) {
-      if (email && password) {
-        const mockUser = {
-          id: `usr-${Date.now()}`,
-          name: name || email.split('@')[0],
-          email: email,
-          role: role || 'Marketing Specialist',
-          createdAt: new Date().toISOString()
-        };
-        const mockToken = `mock-token-${Date.now()}`;
-        setUser(mockUser);
-        setToken(mockToken);
-        setIsAuthModalOpen(false);
-        return { success: true, offline: true };
-      }
-      throw err;
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const updateUser = (updatedData) => {
+    setUser(prev => ({ ...prev, ...updatedData }));
   };
 
   const logout = () => {
@@ -113,35 +87,17 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('dmaut_auth');
   };
 
-  const openLogin = () => {
-    setAuthMode('login');
-    setIsAuthModalOpen(true);
-  };
-
-  const openRegister = () => {
-    setAuthMode('register');
-    setIsAuthModalOpen(true);
-  };
-
-  const closeAuthModal = () => {
-    setIsAuthModalOpen(false);
-  };
-
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
         isAuthenticated: !!user,
+        loading,
         login,
         register,
-        logout,
-        isAuthModalOpen,
-        authMode,
-        setAuthMode,
-        openLogin,
-        openRegister,
-        closeAuthModal
+        updateUser,
+        logout
       }}
     >
       {children}
