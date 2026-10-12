@@ -82,15 +82,20 @@ export default function ContentGenerator({ onNavigateToCampaigns }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [savingCampaign, setSavingCampaign] = useState(false);
+
   const handleSaveAsCampaign = async () => {
     if (!generatedText) return;
+    setSavingCampaign(true);
     try {
-      const title = `${product} - ${contentTypes.find(t => t.id === type)?.label || 'Blast'}`;
-      // Extract subject line if email
-      let subjectLine = `${product}: Special Announcement`;
-      const subjectMatch = generatedText.match(/Subject Line.*?\n1\.\s*\*?([^\n\*\)]+)/i);
+      const typeLabel = contentTypes.find(t => t.id === type)?.label || 'Blast';
+      const title = `${product.trim()} - ${typeLabel}`;
+      
+      // Extract clean subject line
+      let subjectLine = `${product.trim()}: Announcement`;
+      const subjectMatch = generatedText.match(/(?:Subject Line|Subject Options).*?\n(?:1\.\s*\*?|[\*\#\-\s]*)([^\n\*\)]+)/i);
       if (subjectMatch && subjectMatch[1]) {
-        subjectLine = subjectMatch[1].trim();
+        subjectLine = subjectMatch[1].replace(/^[\*\#\-\s:]+/, '').trim();
       }
 
       await apiCreateCampaign({
@@ -100,16 +105,18 @@ export default function ContentGenerator({ onNavigateToCampaigns }) {
         targetSegment: 'All Customers',
         subjectLine,
         content: generatedText,
-        audienceSize: 2500,
-        budget: 500
+        audienceSize: 1000,
+        budget: 250
       });
 
-      showToast('Saved as draft campaign!', 'success');
+      showToast('Saved to Campaign Manager as a draft campaign!', 'success');
       if (onNavigateToCampaigns) {
         onNavigateToCampaigns();
       }
     } catch (err) {
       showToast('Failed to save campaign: ' + err.message, 'error');
+    } finally {
+      setSavingCampaign(false);
     }
   };
 
@@ -278,9 +285,10 @@ export default function ContentGenerator({ onNavigateToCampaigns }) {
                   type="button"
                   className="btn btn-primary btn-sm"
                   onClick={handleSaveAsCampaign}
+                  disabled={savingCampaign}
                   title="Create campaign in Campaign Manager"
                 >
-                  <PlusCircle size={13} /> Save as Campaign
+                  <PlusCircle size={13} /> {savingCampaign ? 'Saving Campaign...' : 'Save as Campaign'}
                 </button>
               </div>
             )}

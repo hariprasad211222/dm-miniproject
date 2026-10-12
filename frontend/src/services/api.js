@@ -1,6 +1,7 @@
 /**
  * API Service Client
- * Includes user session token authorization, AI config, and per-user endpoints
+ * Includes user session token authorization, client identity headers for auto-healing,
+ * and descriptive error handling.
  */
 
 export function getStoredToken() {
@@ -20,6 +21,18 @@ function getAuthHeaders() {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
+  try {
+    const raw = localStorage.getItem('dmaut_auth');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.user) {
+        headers['X-User-Name'] = encodeURIComponent(parsed.user.name || '');
+        headers['X-User-Email'] = parsed.user.email || '';
+        headers['X-User-Tier'] = parsed.user.accountType || 'business';
+        headers['X-User-Id'] = parsed.user.id || '';
+      }
+    }
+  } catch {}
   return headers;
 }
 
@@ -66,7 +79,10 @@ export async function apiGenerateContent({ type, product, audience, tone, keyBen
     })
   });
 
-  if (!res.ok) throw new Error('Failed to generate content');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to generate content');
+  }
   return await res.json();
 }
 
@@ -76,7 +92,10 @@ export async function apiGetCampaigns(params = {}) {
   const res = await fetch(`/api/campaigns?${query}`, {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to fetch campaigns');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch campaigns');
+  }
   return await res.json();
 }
 
@@ -86,7 +105,10 @@ export async function apiCreateCampaign(data) {
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to create campaign');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create campaign');
+  }
   return await res.json();
 }
 
@@ -96,7 +118,10 @@ export async function apiUpdateCampaign(id, data) {
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to update campaign');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update campaign');
+  }
   return await res.json();
 }
 
@@ -105,7 +130,10 @@ export async function apiDuplicateCampaign(id) {
     method: 'POST',
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to duplicate campaign');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to duplicate campaign');
+  }
   return await res.json();
 }
 
@@ -114,7 +142,10 @@ export async function apiDeleteCampaign(id) {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to delete campaign');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete campaign');
+  }
   return await res.json();
 }
 
@@ -123,6 +154,10 @@ export async function apiLoadStarterCampaigns() {
     method: 'POST',
     headers: getAuthHeaders()
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to load starter campaigns');
+  }
   return await res.json();
 }
 
@@ -132,7 +167,10 @@ export async function apiGetSegments(params = {}) {
   const res = await fetch(`/api/segments?${query}`, {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to fetch segments');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch segments');
+  }
   return await res.json();
 }
 
@@ -143,7 +181,7 @@ export async function apiUploadCustomerCSV(csvText) {
     body: JSON.stringify({ csvText, replace: true })
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({ error: 'Upload failed' }));
+    const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || 'Failed to upload CSV');
   }
   return await res.json();
@@ -154,7 +192,10 @@ export async function apiResetSampleCustomers() {
     method: 'POST',
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to load sample data');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to load sample data');
+  }
   return await res.json();
 }
 
@@ -163,6 +204,10 @@ export async function apiClearCustomers() {
     method: 'POST',
     headers: getAuthHeaders()
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to clear customer data');
+  }
   return await res.json();
 }
 
@@ -171,7 +216,10 @@ export async function apiGetAutomations() {
   const res = await fetch('/api/automations', {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to fetch automations');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch automations');
+  }
   return await res.json();
 }
 
@@ -181,7 +229,10 @@ export async function apiCreateAutomation(data) {
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to create automation');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create automation');
+  }
   return await res.json();
 }
 
@@ -191,7 +242,10 @@ export async function apiUpdateAutomation(id, data) {
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to update automation');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update automation');
+  }
   return await res.json();
 }
 
@@ -200,7 +254,10 @@ export async function apiDeleteAutomation(id) {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to delete automation');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete automation');
+  }
   return await res.json();
 }
 
@@ -211,7 +268,7 @@ export async function apiSimulateAutomations(ruleId = null) {
     body: JSON.stringify({ ruleId })
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Simulation failed' }));
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Simulation failed');
   }
   return await res.json();
@@ -222,6 +279,10 @@ export async function apiLoadStarterAutomations() {
     method: 'POST',
     headers: getAuthHeaders()
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to load starter automations');
+  }
   return await res.json();
 }
 
@@ -243,7 +304,10 @@ export async function apiOptimizeABTest({ versionA, versionB, metricGoal }) {
       apiKey
     })
   });
-  if (!res.ok) throw new Error('Optimization failed');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Optimization failed');
+  }
   return await res.json();
 }
 
@@ -252,7 +316,10 @@ export async function apiGetAnalytics() {
   const res = await fetch('/api/analytics', {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to fetch analytics');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch analytics');
+  }
   return await res.json();
 }
 
@@ -273,7 +340,10 @@ export async function apiGetAIInsights(summaryMetrics, topCampaigns, segments) {
       apiKey
     })
   });
-  if (!res.ok) throw new Error('Failed to fetch AI insights');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch AI insights');
+  }
   return await res.json();
 }
 
@@ -283,6 +353,10 @@ export async function apiVerifyKey(provider, apiKey, model) {
     headers: getAuthHeaders(),
     body: JSON.stringify({ provider, apiKey, model })
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Key verification failed');
+  }
   return await res.json();
 }
 
@@ -294,7 +368,7 @@ export async function apiUpdateProfile({ name, email }) {
     body: JSON.stringify({ name, email })
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Update failed' }));
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to update profile');
   }
   return await res.json();
@@ -307,7 +381,7 @@ export async function apiChangePassword({ currentPassword, newPassword }) {
     body: JSON.stringify({ currentPassword, newPassword })
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Password change failed' }));
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to change password');
   }
   return await res.json();
@@ -319,7 +393,10 @@ export async function apiSwitchAccountType(accountType) {
     headers: getAuthHeaders(),
     body: JSON.stringify({ accountType })
   });
-  if (!res.ok) throw new Error('Failed to switch account type');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to switch account type');
+  }
   return await res.json();
 }
 
@@ -329,7 +406,10 @@ export async function apiUpdateSettings(settings) {
     headers: getAuthHeaders(),
     body: JSON.stringify(settings)
   });
-  if (!res.ok) throw new Error('Failed to update settings');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update settings');
+  }
   return await res.json();
 }
 
@@ -338,6 +418,9 @@ export async function apiDeleteAccount() {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to delete account');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete account');
+  }
   return await res.json();
 }
