@@ -114,7 +114,11 @@ export default function CustomerSegmentation({ onTargetInCampaign }) {
   };
 
   const handleDownloadSample = () => {
-    window.location.href = '/api/segments/sample-csv';
+    const a = document.createElement('a');
+    a.href = '/customer_marketing_data.csv';
+    a.download = 'customer_marketing_data.csv';
+    a.click();
+    showToast('Sample CSV downloaded! You can now upload it.', 'success');
   };
 
   const handleExportCSV = () => {
