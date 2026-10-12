@@ -1,47 +1,79 @@
-# DMaut — AI-Enabled Marketing Automation & Campaign Optimization
+# DMAUT AI — Marketing Automation & Campaign Platform
 
-DMaut is a streamlined, high-performance marketing intelligence platform that uses Machine Learning to:
-1. **Segment customers into behavioral personas** using unsupervised K-Means clustering.
-2. **Predict campaign conversion probability** using cross-validated machine learning (Logistic Regression / Random Forest).
-3. **Simulate campaign ROI and selective targeting** comparing blanket mass email blasts with AI high-propensity targeting.
-4. **Interactive Customer Propensity Predictor** to simulate individual customer conversion likelihood in real time with an interactive gauge.
+An advanced AI-powered marketing automation web application built with a high-contrast monochrome design system, multi-model AI integration (Google Gemini Studio, OpenAI, Groq), isolated per-user sessions, RFM customer segmentation, event-driven marketing automations, and predictive campaign optimization.
 
 ---
 
-## 🚀 Quick Setup & Run
+## 🌟 Key Updates in Version 2.1
 
-### 1. Install Dependencies
+### 1. Mandatory Auth Wall & Per-User Data Isolation
+- The app opens with a dedicated **Sign-In / Sign-Up landing page**.
+- Every user has their own **isolated session and private database sandbox**. User A can never see or modify User B's campaigns, segments, automations, or logs.
+- New accounts start **completely fresh and clean** (no unwanted mock pollution).
+
+### 2. Business vs. Personal Account Tiers
+During registration, users can choose between two purpose-built account types:
+- **🏢 Business Account**:
+  - Full enterprise access to all 6 modules: AI Content Generator, Multi-Channel Campaign Manager with budget tracking, Smart CSV Customer Segmentation with RFM auto-clustering, Marketing Automation with simulation runner, Campaign Optimization Assistant (A/B testing), and full Revenue Matrix Analytics.
+- **👤 Personal Account**:
+  - Distraction-free workspace tailored for solo creators, newsletter authors, and freelancers: AI Content Generator, Simplified Campaign Manager, and Reach Analytics.
+
+### 3. Sidebar Bottom Menus (Settings & Account)
+- **Settings Menu**:
+  - **Themes**: Switch between Dark, Light (White), and Auto/System modes.
+  - **AI Model Keys**: Configure Google Gemini Studio (`gemini-2.0-flash`, `gemini-1.5-pro`, `gemini-1.5-flash`), OpenAI, or Groq Cloud credentials with built-in connection testing.
+  - **Walkthrough Guide**: Replay or toggle the onboarding tutorial.
+  - **Workspace Snapshot**: Download full JSON workspace backups.
+- **Account Menu**:
+  - Edit Display Name / Username.
+  - Change Email Address.
+  - Change Password.
+  - Switch Account Tier (Personal $\leftrightarrow$ Business).
+  - Permanent Account Deletion (completely removes user and data from the server).
+  - Sign Out.
+
+### 4. Interactive Startup Onboarding Tour
+- Professional guided walkthrough explaining how to use all 6 modules.
+- Persistent checkbox to disable on future startups, relaunchable at any time from Settings or the top header.
+
+### 5. Collapsible Sidebar
+- High-productivity expand/collapse toggle for compact icon-only view or expanded view.
+
+---
+
+## 🎯 The 6 Core Modules
+
+1. **AI Marketing Content Generator**: Promotional emails, ad copies, headlines, and catchy subject lines with 6 brand tones, regeneration, copy-to-clipboard, and direct "Save as Campaign".
+2. **Campaign Manager**: Multi-channel marketing campaigns (Email, Google Ads, SMS, Social Media) with schedule dates, segment bindings, and live metrics.
+3. **Smart Customer Segmentation**: CSV spreadsheet parser with RFM behavioral clustering into Loyal VIPs, Active, New, and At-Risk segments.
+4. **Simple Marketing Automation**: Event-driven $\text{Trigger} \rightarrow \text{Condition} \rightarrow \text{Action}$ builder with live simulation runner and real-time execution audit logs.
+5. **Campaign Optimization Assistant**: Side-by-side A/B test comparison with statistical lift calculation, friction point detection, and winning variant deployment.
+6. **Analytics Dashboard**: High-level KPIs, 7-day timeline trends, channel revenue breakdown, and on-demand AI strategic recommendations.
+
+---
+
+## 🚀 Getting Started
+
+### 1-Click Launch (Windows)
+Double-click `run_app.bat` in the root folder. Both backend (Port 5000) and frontend (Port 5173) will launch, and your default browser will open automatically.
+
+### Manual Commands
+
+**Terminal 1 — Backend (Port 5000):**
 ```bash
-pip install -r requirements.txt
+cd backend
+npm install
+npm start
 ```
 
-### 2. Run the Interactive Streamlit App
+**Terminal 2 — Frontend (Port 5173):**
 ```bash
-streamlit run app.py
-```
-*The web interface will automatically open at `http://localhost:8501`.*
-
----
-
-## 🧩 Key Features
-
-- **📊 Modern Glassmorphic Dark UI**: Built with Streamlit, Plotly, and custom Plus Jakarta Sans / Outfit typography.
-- **👥 Behavioral Clustering**: Automatically segments audiences into actionable personas (*High-Value Loyalists*, *Window Shoppers*, *Disengaged / At-Risk*, *Steady Buyers*).
-- **🧠 Transparent Conversion AI**: Explains what drives purchases (feature importances) and validates accuracy via 5-Fold Stratified Cross-Validation.
-- **🚀 Campaign Financial Simulator**: Enter your cost per message and average order value to calculate exact cost savings, net profit, and ROI gains.
-- **🎯 1-Click Audience Export**: Download high-propensity target lists (CSV) directly ready for Klaviyo, Mailchimp, or Meta Custom Audiences.
-- **🔮 Real-Time Customer Tester**: Tweak age, income, past spend, web visits, open rates, and recency sliders to test conversion probabilities interactively.
-
----
-
-## 🧪 Testing
-
-Run the automated test suite with Python's standard unittest:
-```bash
-python -m unittest test_dmaut.py -v
+cd frontend
+npm install
+npm run dev
 ```
 
----
+HEAD
 
 ## 📂 Project Structure
 ```
@@ -53,3 +85,5 @@ sample_business_data.csv  Sample marketing records
 .env.example              Environment configuration template
 .streamlit/config.toml    Custom Streamlit theme configuration
 ```
+Visit [http://localhost:5173](http://localhost:5173) in your browser.
+d84b4bb3f0e8345e8473cb85a3f1434443f58d8c

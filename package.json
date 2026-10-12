@@ -1,0 +1,10 @@
+{
+  "name": "dmaut-ai-platform",
+  "version": "2.0.0",
+  "description": "AI Marketing Automation Platform",
+  "scripts": {
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build"
+  }
+}
