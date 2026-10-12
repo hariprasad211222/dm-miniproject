@@ -5,6 +5,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import core_engine as engine
 
 # -----------------------------------------------------------------------------
@@ -378,8 +384,6 @@ campaign_results = engine.simulate_campaign(
 # -----------------------------------------------------------------------------
 # View: 1. Dashboard Overview
 # -----------------------------------------------------------------------------
-# View: 1. Dashboard Overview
-# -----------------------------------------------------------------------------
 if menu == "📊 Overview":
     st.markdown(f"""
     <div class="hero-box">
@@ -492,13 +496,11 @@ elif menu == "👥 Customer Personas":
     # Persona Clustering Explorer with Combined vs Separated views
     st.markdown("### 🔍 Customer Cluster Analysis")
     
-    view_col1, view_col2 = st.columns([1.2, 1.8])
-    with view_col1:
-        cluster_view_mode = st.radio(
-            "Visualization Mode:",
-            ["🌈 Mixed (All Clusters Combined)", "📑 Split Grid (View Each Separately)", "🎯 Focus on Single Persona"],
-            horizontal=True
-        )
+    cluster_view_mode = st.radio(
+        "Visualization Mode:",
+        ["🌈 Mixed (All Clusters Combined)", "📑 Split Grid (View Each Separately)", "🎯 Focus on Single Persona"],
+        horizontal=True
+    )
     
     unique_personas = list(personas_summary["persona"])
     
@@ -572,13 +574,15 @@ elif menu == "👥 Customer Personas":
     
     # Actionable Marketing Recommendations
     st.markdown("### 💡 Recommended Marketing Playbook by Persona")
-    t1, t2, t3 = st.columns(3)
+    t1, t2, t3, t4 = st.columns(4)
     with t1:
         st.info("⭐ **High-Value Loyalists**\n\nReward with exclusive VIP discounts, early product drop access, and premium concierge support to maximize retention.")
     with t2:
         st.warning("👀 **Window Shoppers**\n\nSend trigger-based browse abandonment reminders, limited-time countdown coupons, and social proof testimonials.")
     with t3:
         st.error("⚠️ **Disengaged / At-Risk**\n\nDeploy automated win-back reactivation email sequences or decrease email frequency to avoid list burnout.")
+    with t4:
+        st.success("🌱 **Steady Buyers**\n\nDrive basket expansion via cross-sell product bundles, tiered minimum-spend discounts, and loyalty points.")
 
 # -----------------------------------------------------------------------------
 # View: 3. Conversion AI & Drivers
@@ -662,7 +666,32 @@ elif menu == "🚀 Campaign Optimizer":
     r1.metric("Audience Size", f"{sim['n_target']:,} customers", f"Filtered from {sim['n_total']:,}")
     r2.metric("Targeted Conversion", f"{sim['targeted_rate']:.1%}", f"{sim['lift']:+.1f}% vs Baseline")
     r3.metric("Cost Savings", f"${sim['savings']:,.2f}", "Unspent Marketing Budget")
-    r4.metric("Net Profit Uplift", f"${sim['targeted_profit']:,.2f}", f"Targeted ROI: {sim['targeted_roi']:,.1f}%")
+    r4.metric("Targeted Net Profit", f"${sim['targeted_profit']:,.2f}", f"Profit Uplift: ${sim['profit_uplift']:+,.2f}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Financial Strategy Comparison Visualizer
+    st.markdown("### 📊 Strategy Financial Comparison")
+    fin_df = pd.DataFrame([
+        {"Strategy": "Blanket Blast (Everyone)", "Category": "Campaign Cost", "Amount ($)": sim["blast_cost"]},
+        {"Strategy": "Blanket Blast (Everyone)", "Category": "Gross Revenue", "Amount ($)": sim["blast_revenue"]},
+        {"Strategy": "Blanket Blast (Everyone)", "Category": "Net Profit", "Amount ($)": sim["blast_profit"]},
+        {"Strategy": f"AI Targeted (Top {target_top_pct}%)", "Category": "Campaign Cost", "Amount ($)": sim["targeted_cost"]},
+        {"Strategy": f"AI Targeted (Top {target_top_pct}%)", "Category": "Gross Revenue", "Amount ($)": sim["targeted_revenue"]},
+        {"Strategy": f"AI Targeted (Top {target_top_pct}%)", "Category": "Net Profit", "Amount ($)": sim["targeted_profit"]},
+    ])
+    fig_fin = px.bar(
+        fin_df,
+        x="Strategy",
+        y="Amount ($)",
+        color="Category",
+        barmode="group",
+        text_auto="$,.0f",
+        color_discrete_map={"Campaign Cost": "#ef4444", "Gross Revenue": "#38bdf8", "Net Profit": "#10b981"},
+        template="plotly_dark"
+    )
+    fig_fin.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=380)
+    st.plotly_chart(fig_fin, use_container_width=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -768,25 +797,55 @@ elif menu == "📂 Data Manager":
             st.markdown("""
             <div class="card-container">
                 <div style="font-size:1.1rem; font-weight:700; color:#fff; margin-bottom:4px;">📤 Import Audience File</div>
-                <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:16px;">Accepts CSV format with historical campaign conversion flags.</div>
+                <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:16px;">Accepts CSV or Excel (.xlsx) formats with historical campaign conversion flags.</div>
             """, unsafe_allow_html=True)
             
-            uploaded_file = st.file_uploader("Upload customer CSV", type=["csv"], label_visibility="collapsed")
+            uploaded_file = st.file_uploader("Upload customer file (CSV or Excel)", type=["csv", "xlsx"], label_visibility="collapsed")
             if uploaded_file is not None:
                 try:
-                    user_df = pd.read_csv(uploaded_file)
+                    if uploaded_file.name.endswith(".xlsx"):
+                        user_df = pd.read_excel(uploaded_file)
+                    else:
+                        user_df = pd.read_csv(uploaded_file)
+
                     missing = [col for col in engine.FEATURES if col not in user_df.columns]
                     if missing:
-                        st.error(f"Missing required columns in CSV: {', '.join(missing)}")
+                        st.error(f"Missing required columns in file: {', '.join(missing)}")
+                    elif "converted" not in user_df.columns:
+                        st.error("Dataset must contain a 'converted' column (1 or 0) for model training.")
                     else:
-                        if "converted" not in user_df.columns:
-                            st.error("CSV must contain a 'converted' column (1 or 0) for model training.")
-                        else:
-                            st.session_state["df"] = user_df
-                            st.success(f"✓ Audience verified & loaded: {len(user_df):,} customer records active.")
-                            st.rerun()
+                        # Auto-generate customer_id if missing
+                        if "customer_id" not in user_df.columns:
+                            user_df["customer_id"] = [f"CUST-{1000 + i}" for i in range(len(user_df))]
+                            st.info("ℹ️ No 'customer_id' column found; generated default customer IDs automatically.")
+                        
+                        # Handle missing values if present
+                        null_count = user_df[engine.FEATURES].isnull().sum().sum()
+                        if null_count > 0:
+                            user_df[engine.FEATURES] = user_df[engine.FEATURES].fillna(user_df[engine.FEATURES].median())
+                            st.info(f"ℹ️ Imputed {null_count} missing values using feature medians.")
+
+                        st.session_state["df"] = user_df
+                        st.success(f"✓ Audience verified & loaded: {len(user_df):,} customer records active.")
+                        st.rerun()
                 except Exception as e:
                     st.error(f"Error processing file: {e}")
+
+            # Download schema template button
+            st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+            template_csv = (
+                "customer_id,age,income,past_spend,website_visits,email_open_rate,days_since_last_purchase,converted\n"
+                "CUST-1001,35,52000.0,2400.0,6,0.38,30,1\n"
+                "CUST-1002,48,68000.0,850.0,2,0.18,95,0\n"
+                "CUST-1003,29,41000.0,3800.0,9,0.52,14,1\n"
+            )
+            st.download_button(
+                label="📥 Download CSV Schema Template",
+                data=template_csv.encode("utf-8"),
+                file_name="dmaut_customer_schema_template.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
                     
             st.markdown("</div>", unsafe_allow_html=True)
                 
@@ -799,11 +858,22 @@ elif menu == "📂 Data Manager":
             """, unsafe_allow_html=True)
             
             n_rows = st.number_input("Audience Size", min_value=100, max_value=5000, value=600, step=100)
-            if st.button("Generate Fresh Dataset", use_container_width=True):
-                new_df = engine.generate_marketing_data(n_samples=n_rows)
-                st.session_state["df"] = new_df
-                st.success(f"Generated {n_rows:,} customer records with realistic engagement signals!")
-                st.rerun()
+            c_gen_btn, c_reset_btn = st.columns(2)
+            with c_gen_btn:
+                if st.button("Generate Dataset", use_container_width=True):
+                    new_df = engine.generate_marketing_data(n_samples=n_rows)
+                    st.session_state["df"] = new_df
+                    st.success(f"Generated {n_rows:,} customer records with realistic engagement signals!")
+                    st.rerun()
+            with c_reset_btn:
+                if st.button("🔄 Reset Sample Data", use_container_width=True):
+                    sample_csv = Path(__file__).resolve().parent / "sample_business_data.csv"
+                    if sample_csv.exists():
+                        st.session_state["df"] = pd.read_csv(sample_csv)
+                    else:
+                        st.session_state["df"] = engine.generate_marketing_data(600)
+                    st.success("Reverted to original sample business dataset!")
+                    st.rerun()
                 
             st.markdown("</div>", unsafe_allow_html=True)
             

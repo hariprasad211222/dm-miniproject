@@ -45,9 +45,11 @@ python -m unittest test_dmaut.py -v
 
 ## 📂 Project Structure
 ```
-app.py            Interactive Streamlit dashboard & Plotly charts
-core_engine.py    Core ML engine (K-Means, Logistic Regression, Random Forest, ROI simulations)
-test_dmaut.py     Automated test suite
-requirements.txt  Project dependencies
+app.py                    Interactive Streamlit dashboard & Plotly charts
+core_engine.py            Core ML engine (K-Means, Logistic Regression, Random Forest, ROI simulations)
+test_dmaut.py             Automated test suite
+requirements.txt          Project dependencies
 sample_business_data.csv  Sample marketing records
+.env.example              Environment configuration template
+.streamlit/config.toml    Custom Streamlit theme configuration
 ```

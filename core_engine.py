@@ -64,13 +64,18 @@ def generate_marketing_data(n_samples: int = 600, random_state: int = 42) -> pd.
 
 def perform_segmentation(df: pd.DataFrame, n_clusters: int = 4, random_state: int = 42) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Segment customers using K-Means and compute interpretable personas."""
+    out_df = df.copy()
+    if "customer_id" not in out_df.columns:
+        out_df["customer_id"] = [f"CUST-{1000 + i}" for i in range(len(out_df))]
+
+    # Handle missing values if any
+    cluster_data = out_df[CLUSTER_FEATURES].fillna(out_df[CLUSTER_FEATURES].median())
     scaler = StandardScaler()
-    scaled_feats = scaler.fit_transform(df[CLUSTER_FEATURES])
+    scaled_feats = scaler.fit_transform(cluster_data)
     
     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
     cluster_labels = kmeans.fit_predict(scaled_feats)
     
-    out_df = df.copy()
     out_df["cluster"] = cluster_labels
     
     # Aggregate stats per cluster
@@ -117,9 +122,9 @@ def perform_segmentation(df: pd.DataFrame, n_clusters: int = 4, random_state: in
     return out_df, summary.sort_values("avg_spend", ascending=False).reset_index(drop=True)
 
 def train_conversion_model(df: pd.DataFrame, model_type: str = "Logistic Regression", random_state: int = 42) -> dict:
-    """Train predictive model with 5-fold Stratified Cross-Validation."""
-    X = df[FEATURES]
-    y = df["converted"]
+    """Train predictive model with adaptive Stratified Cross-Validation."""
+    X = df[FEATURES].fillna(df[FEATURES].median())
+    y = df["converted"].astype(int)
     
     if model_type == "Random Forest":
         clf = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=random_state)
@@ -127,9 +132,19 @@ def train_conversion_model(df: pd.DataFrame, model_type: str = "Logistic Regress
     else:
         clf = LogisticRegression(max_iter=1000, random_state=random_state)
         pipeline = make_pipeline(StandardScaler(), clf)
-        
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
-    probs = cross_val_predict(pipeline, X, y, cv=cv, method="predict_proba")[:, 1]
+
+    # Determine safe cross-validation folds based on minority class size
+    class_counts = y.value_counts()
+    min_class_samples = int(class_counts.min()) if len(class_counts) > 1 else 0
+    n_splits = min(5, min_class_samples) if min_class_samples >= 2 else 0
+
+    if n_splits >= 2:
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+        probs = cross_val_predict(pipeline, X, y, cv=cv, method="predict_proba")[:, 1]
+    else:
+        pipeline.fit(X, y)
+        probs = pipeline.predict_proba(X)[:, 1] if len(pipeline.classes_) > 1 else np.zeros(len(y))
+
     preds = (probs >= 0.5).astype(int)
     
     # Fit full model to extract feature weights
@@ -144,8 +159,8 @@ def train_conversion_model(df: pd.DataFrame, model_type: str = "Logistic Regress
         "accuracy": float(accuracy_score(y, preds)),
         "precision": float(precision_score(y, preds, zero_division=0)),
         "recall": float(recall_score(y, preds, zero_division=0)),
-        "roc_auc": float(roc_auc_score(y, probs)),
-        "confusion_matrix": confusion_matrix(y, preds),
+        "roc_auc": float(roc_auc_score(y, probs)) if len(class_counts) > 1 else 0.5,
+        "confusion_matrix": confusion_matrix(y, preds, labels=[0, 1]),
         "probabilities": probs,
         "feature_importance": importances.sort_values(ascending=False),
         "pipeline": pipeline,
@@ -181,6 +196,7 @@ def simulate_campaign(
     targeted_profit = targeted_revenue - targeted_cost
     targeted_roi = (targeted_profit / targeted_cost * 100) if targeted_cost > 0 else 0
     
+    profit_uplift = targeted_profit - blast_profit
     lift = ((targeted_rate - baseline_rate) / baseline_rate * 100) if baseline_rate > 0 else 0
     savings = blast_cost - targeted_cost
     
@@ -202,6 +218,7 @@ def simulate_campaign(
         "targeted_revenue": targeted_revenue,
         "targeted_profit": targeted_profit,
         "targeted_roi": targeted_roi,
+        "profit_uplift": profit_uplift,
         "savings": savings,
         "export_df": export_df
     }
